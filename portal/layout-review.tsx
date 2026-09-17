@@ -16,7 +16,6 @@ import './content.css';
 import './glass.css';
 import './features.css';
 import './layout.css';
-import './exchange.css';
 const now = Math.floor(Date.now() / 1000);
 const nodes = [
   {
@@ -173,7 +172,7 @@ function Review() {
           {dark ? '浅色' : '深色'}
         </button>
       </header>
-      <main className={'wide view-' + view + (!['admin', 'admin_users', 'admin_content', 'admin_tickets', 'operations'].includes(view) ? ' exchange-layout' : '')}>
+      <main className={'wide view-' + view}>
         <div
           style={{
             display: 'flex',

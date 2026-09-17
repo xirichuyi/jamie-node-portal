@@ -1,5 +1,7 @@
 # Borderless UI experiment
 
+Outcome: user chose the previous card layout, retaining only the borderless announcement strip. The experimental stylesheet and scope classes were removed; the strip styling now lives in `portal/layout.css`. Announcement auto-open behavior is unchanged.
+
 Baseline commit: `55b9d46`, tag `ui-before-borderless`.
 Branch: `ui/borderless`. Local repository only; no remote push.
 

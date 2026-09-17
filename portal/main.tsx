@@ -65,7 +65,6 @@ import './content.css';
 import './glass.css';
 import './features.css';
 import './layout.css';
-import './exchange.css';
 import {
   Dashboard,
   AccountHub,
@@ -393,7 +392,6 @@ function App() {
         className={
           'wide view-' +
           view +
-          (!['admin', 'admin_users', 'admin_content', 'admin_tickets', 'operations'].includes(view) ? ' exchange-layout' : '') +
           (isAuthenticationView(view, !!me) ? ' auth-layout' : '')
         }
       >

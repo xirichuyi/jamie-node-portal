@@ -113,11 +113,12 @@ main.wide:is(
   justify-content: space-between;
   align-items: center;
   gap: 16px;
-  padding: 4px 14px;
+  padding: 0 0 8px;
   margin: 0 0 24px;
-  border: 1px solid var(--border);
-  background: var(--jamie-glass);
-  border-radius: 12px;
+  border: 0;
+  border-bottom: 1px solid var(--jamie-border);
+  background: transparent;
+  border-radius: 0;
 }
 .entry-notice-title {
   display: flex;
