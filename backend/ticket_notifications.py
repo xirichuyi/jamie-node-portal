@@ -64,6 +64,11 @@ class TicketNotifications:
             )
 
     def deliver_pending(self):
+        # Do not send a previously selected reminder after an account deletion starts.
+        with self.app.account_lifecycle_lock:
+            self._deliver_pending()
+
+    def _deliver_pending(self):
         if not self.app.email_auth.enabled:
             return
         now = int(time.time())

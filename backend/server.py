@@ -25,6 +25,7 @@ from passwords import PASSWORD_COST as PASSWORD_COST
 from passwords import hash_password, verify_password
 from email_auth import EmailAuth, email_address
 from ticket_notifications import TicketNotifications
+from account_deletion import AccountDeletion
 
 COOKIE = '__Host-jamie_session'
 
@@ -45,6 +46,7 @@ class App:
         self.content = Content(self.ledger)
         self.monitor = NodeMonitor(self.panel)
         self.wake = threading.Event()
+        self.account_lifecycle_lock = threading.RLock()
         self.password_lock = threading.BoundedSemaphore(2)
         self.dummy_hash = hash_password(secrets.token_urlsafe(24))
         with self.ledger.connect() as db:
@@ -74,6 +76,7 @@ class App:
         self.operations = Operations(self)
         self.email_auth = EmailAuth(self)
         self.ticket_notifications = TicketNotifications(self)
+        self.account_deletion = AccountDeletion(self)
 
     def limit(self, key, count, window):
         now = int(time.time())
@@ -339,6 +342,7 @@ class App:
     def sync_loop(self):
         while True:
             try:
+                self.account_deletion.process()
                 if self.ledger.package_billing:
                     self.refresh_billing()
                 for member_id in self.ledger.pending():
@@ -548,6 +552,14 @@ class Handler(BaseHTTPRequestHandler):
             return self.reply(200, app.features.service_status())
         if not write and path == '/api/sessions':
             return self.reply(200, app.features.sessions(account, token))
+        if write and path == '/api/account/delete':
+            return self.reply(
+                202,
+                app.account_deletion.request(
+                    account, account['id'], data.get('confirmation'), data.get('password')
+                ),
+                '',
+            )
         if write and path == '/api/account/email/code':
             app.reauthenticate(account, data.get('password'))
             if data.get('purpose') not in ('change_old', 'change_new'):
@@ -620,6 +632,16 @@ class Handler(BaseHTTPRequestHandler):
         if path.startswith('/api/admin/'):
             if not account['admin']:
                 raise HttpError(403, '仅管理员可访问')
+            if write and path == '/api/admin/user-delete':
+                return self.reply(
+                    202,
+                    app.account_deletion.request(
+                        account,
+                        text(data.get('id'), 64),
+                        data.get('confirmation'),
+                        data.get('password'),
+                    ),
+                )
             if write and path in ('/api/admin/card-search', '/api/admin/login-diagnosis'):
                 app.limit('diagnostics:' + account['id'], 60, 60)
                 return self.reply(
@@ -646,6 +668,8 @@ class Handler(BaseHTTPRequestHandler):
                     ).fetchone()
                     if not target or target['admin']:
                         raise DomainError('只能操作普通用户')
+                    if target['deleting']:
+                        raise DomainError('账号删除处理中，不能修改状态')
                     if path.endswith('user-sessions'):
                         db.execute('DELETE FROM sessions WHERE account_id=?', (uid,))
                         app.ledger.audit(db, account['id'], 'account.revoke_sessions', uid)
@@ -707,8 +731,11 @@ class Handler(BaseHTTPRequestHandler):
                     if not target or target['admin']:
                         raise DomainError('只能操作普通用户')
                     state = db.execute(
-                        'SELECT disabled FROM members WHERE id=?', (member_id,)
-                    ).fetchone()['disabled']
+                        'SELECT disabled,deleting FROM members WHERE id=?', (member_id,)
+                    ).fetchone()
+                    if state['deleting']:
+                        raise DomainError('账号删除处理中，不能修改状态')
+                    state = state['disabled']
                     if 'expected_disabled' in data and (
                         type(data['expected_disabled']) is not bool
                         or data['expected_disabled'] != bool(state)
@@ -735,10 +762,12 @@ class Handler(BaseHTTPRequestHandler):
                     hashed = hash_password(new_password)
                 with app.ledger.transaction() as db:
                     target = db.execute(
-                        'SELECT * FROM accounts WHERE id=? AND admin=0', (data['id'],)
+                        'SELECT a.*,m.deleting FROM accounts a JOIN members m ON m.id=a.id WHERE a.id=? AND a.admin=0', (data['id'],)
                     ).fetchone()
                     if not target:
                         raise DomainError('用户不存在')
+                    if target['deleting']:
+                        raise DomainError('账号正在删除，不能重置密码')
                     db.execute(
                         'UPDATE accounts SET password=?,must_change=1 WHERE id=?',
                         (hashed, data['id']),

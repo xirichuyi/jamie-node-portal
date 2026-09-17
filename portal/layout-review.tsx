@@ -94,6 +94,8 @@ const responses: Record<string, unknown> = {
     recovery_created: null,
     email_verified: true,
     email: 'jamie@example.com',
+    username: 'jamie@example.com',
+    admin: false,
   },
 };
 window.fetch = async (input, init) => {

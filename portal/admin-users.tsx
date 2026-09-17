@@ -3,7 +3,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select';
 import { LoginDiagnosis } from './admin-support';
-import { PackageBalances, type PackageBalance } from './features';
+import { DeleteAccount, PackageBalances, type PackageBalance } from './features';
 import {
   Sheet,
   SheetContent,
@@ -32,6 +32,7 @@ export type ManagedUser = {
   username: string;
   admin: number;
   disabled: number;
+  deleting?: number;
   quota: number;
   used: number | null;
   remaining: number | null;
@@ -114,7 +115,7 @@ export function UserStatus({ member: m }: { member: ManagedUser }) {
   return (
     <>
       <span className={'user-state state-' + m.primary_state}>
-        {userStates[m.primary_state] || '待确认'}
+        {m.deleting ? '删除处理中' : userStates[m.primary_state] || '待确认'}
       </span>
       {m.sync_state !== 'synced' && (
         <small className="sync-caption">{userStates[m.sync_state]}</small>
@@ -566,6 +567,7 @@ export function UserManager({
               {!m.admin && (
                 <section className="user-detail-section">
                   <h2>账号操作</h2>
+                  {!!m.deleting && <p role="status" className="message">删除处理中，清理完成后将从列表移除。</p>}
                   <p className="small muted">
                     当前有效网站会话 {detail.sessions} 个 · 最近活动{' '}
                     {time(detail.last_seen)}
@@ -573,7 +575,7 @@ export function UserManager({
                   <div className="actions">
                     <Button
                       variant="outline"
-                      disabled={busy}
+                      disabled={busy || !!m.deleting}
                       onClick={() => setConfirm('password')}
                     >
                       重置密码
@@ -587,11 +589,17 @@ export function UserManager({
                     </Button>
                     <Button
                       variant="outline"
-                      disabled={busy}
+                      disabled={busy || !!m.deleting}
                       onClick={() => setConfirm('status')}
                     >
                       {m.disabled ? '恢复账号' : '停用账号'}
                     </Button>
+                    <DeleteAccount username={m.username} userId={m.id} disabled={busy || !!m.deleting} onDeleted={() => {
+                      setMessage('删除处理中，账号已停用。');
+                      history.replaceState(history.state, '', '#/admin_users');
+                      window.dispatchEvent(new Event('hashchange'));
+                      void load();
+                    }} />
                   </div>
                 </section>
               )}

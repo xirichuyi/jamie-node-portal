@@ -122,11 +122,16 @@ class Features:
             email = db.execute(
                 'SELECT email FROM verified_emails WHERE account_id=?', (account['id'],)
             ).fetchone()
+            identity = db.execute(
+                'SELECT username,admin FROM accounts WHERE id=?', (account['id'],)
+            ).fetchone()
         return {
             'sessions': rows,
             'recovery_created': recovery['created'] if recovery else None,
             'email_verified': email_verified,
             'email': email['email'] if email else '',
+            'username': identity['username'],
+            'admin': bool(identity['admin']),
         }
 
     def revoke_session(self, account, target, token):

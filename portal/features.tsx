@@ -1154,11 +1154,42 @@ function ChangeEmail({ email }: { email: string }) {
     </form></details></section>;
 }
 
+export function DeleteAccount({ username, userId, onDeleted, disabled = false }: {
+  username: string; userId?: string; onDeleted?: () => void; disabled?: boolean;
+}) {
+  const [open, setOpen] = useState(false), [password, setPassword] = useState(''), [confirmation, setConfirmation] = useState(''), [accepted, setAccepted] = useState(false);
+  const work = useWork();
+  return <>
+    <Button variant="outline" className="delete-account-button" disabled={disabled} onClick={() => setOpen(true)}>{userId ? '删除账号' : '注销账号'}</Button>
+    <Dialog open={open} onOpenChange={value => { if (!work.busy) { if (accepted && !value) { window.location.href = '/#/login'; return; } setOpen(value); setPassword(''); setConfirmation(''); } }}>
+      <DialogContent>
+        <DialogTitle>{accepted ? '删除处理中' : userId ? '永久删除账号？' : '永久注销账号？'}</DialogTitle>
+        <DialogDescription>{accepted ? '账号已停用。系统正在清理节点和关联数据，失败会自动重试。' : '账号、套餐、剩余流量、用量记录和工单将删除，订阅失效，已兑换卡密不能再次使用。此操作不可撤销。'}</DialogDescription>
+        {accepted ? <Button onClick={() => { window.location.hash = '/login'; window.location.reload(); }}>返回登录</Button> : <form onSubmit={e => {
+          e.preventDefault(); void work.run(async () => {
+            await api(userId ? 'admin/user-delete' : 'account/delete', { id:userId, password, confirmation });
+            setPassword(''); setConfirmation('');
+            if (userId) { setOpen(false); onDeleted?.(); } else setAccepted(true);
+          });
+        }}>
+          <p className="small muted">历史备份及邮件服务商日志不在本次即时清理范围。</p>
+          <Field label={userId ? '管理员密码' : '当前密码'}><Input required type="password" autoComplete="current-password" value={password} onChange={e => setPassword(e.target.value)} /></Field>
+          <Field label={`输入完整账号确认：${username}`}><Input required autoComplete="off" value={confirmation} onChange={e => setConfirmation(e.target.value)} /></Field>
+          {work.feedback}
+          <div className="actions"><Button type="button" variant="outline" disabled={work.busy} onClick={() => { setOpen(false); setPassword(''); setConfirmation(''); }}>取消</Button><Button type="submit" variant="destructive" disabled={work.busy || confirmation !== username}>{work.busy ? '正在提交…' : '确认永久删除'}</Button></div>
+        </form>}
+      </DialogContent>
+    </Dialog>
+  </>;
+}
+
 export function Sessions() {
   const { data, reload, placeholder } = useData<{
       sessions: Session[];
       recovery_created: number | null;
       email?: string;
+      username?: string;
+      admin?: boolean;
     }>('sessions'),
     work = useWork();
   const [code, setCode] = useState(''),
@@ -1255,6 +1286,7 @@ export function Sessions() {
           )}
         </section>
       </div>
+      {data?.username && !data.admin && <section className="section"><h2>注销账号</h2><p className="small muted">永久删除账号与关联数据。</p><DeleteAccount username={data.username} /></section>}
       <Dialog open={!!target} onOpenChange={(v) => !v && setTarget(null)}>
         <DialogContent>
           <DialogTitle>退出这个登录会话？</DialogTitle>

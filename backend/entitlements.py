@@ -65,6 +65,8 @@ class Ledger:
                 CREATE INDEX IF NOT EXISTS idx_audit_target ON audit(target);
                 PRAGMA optimize;
             """)
+            if 'deleting' not in {r['name'] for r in db.execute('PRAGMA table_info(members)')}:
+                db.execute('ALTER TABLE members ADD COLUMN deleting INTEGER NOT NULL DEFAULT 0')
             if 'previous_sub_id' not in {
                 r['name'] for r in db.execute('PRAGMA table_info(members)')
             }:
@@ -287,7 +289,7 @@ class Ledger:
         """
         with self.connect() as db:
             member = db.execute('SELECT * FROM members WHERE id=?', (member_id,)).fetchone()
-        if not member or member['revision'] == member['synced_revision']:
+        if not member or member['deleting'] or member['revision'] == member['synced_revision']:
             return False
         desired = dict(member)
         with self.connect() as db:

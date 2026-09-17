@@ -19,6 +19,14 @@ const authentication = await vite.ssrLoadModule('/portal/auth.tsx');
 const users = await vite.ssrLoadModule('/portal/admin-users.tsx');
 const notices = await vite.ssrLoadModule('/portal/notice-entry.tsx');
 const support = await vite.ssrLoadModule('/portal/admin-support.tsx');
+test('account deletion is an explicit action and pending deletion is visible to staff', () => {
+  const self = renderToStaticMarkup(React.createElement(features.DeleteAccount, {username:'test@example.com'}));
+  const admin = renderToStaticMarkup(React.createElement(features.DeleteAccount, {username:'test@example.com',userId:'test-id'}));
+  assert.match(self, /注销账号/);
+  assert.match(admin, /删除账号/);
+  const state = renderToStaticMarkup(React.createElement(users.UserStatus, {member:{primary_state:'disabled',sync_state:'synced',deleting:1}}));
+  assert.match(state, /删除处理中/);
+});
 test('usage windows remove uncollected leading dates but preserve real zero and internal gaps', () => {
   const rows = [null, null, 0, null, 1024].map((bytes, i) => ({ day: `2026-09-${10+i}`, bytes, partial: false }));
   for (const compact of [true, false]) {

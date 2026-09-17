@@ -107,7 +107,7 @@ class UserWorkspace:
                 dict(r)
                 for r in db.execute(
                     """SELECT a.id,a.username,a.admin,a.must_change,
-                m.quota,m.expires,m.disabled,m.revision,m.synced_revision,m.sync_error,m.created,
+                m.quota,m.expires,m.disabled,m.deleting,m.revision,m.synced_revision,m.sync_error,m.created,
                 m.last_sync_attempt,m.last_synced_at,m.panel_email,
                 (SELECT MAX(d.seen) FROM sessions s JOIN session_details d ON d.digest=s.digest
                     WHERE s.account_id=m.id) AS last_web_seen,

@@ -43,6 +43,28 @@ class Panel:
     def get(self, email):
         return self.request('clients/get/' + urllib.parse.quote(email, safe=''))
 
+    def remove(self, member):
+        email = member['panel_email']
+        if not any(c['email'] == email for c in self.request('clients/list')):
+            return
+        current = self.get(email)
+        if current['client']['subId'] not in {
+            member['sub_id'],
+            member.get('previous_sub_id'),
+        } or current['client']['auth'] not in {
+            member['panel_auth'],
+            member.get('previous_panel_auth'),
+        }:
+            raise RuntimeError('Panel identity mismatch')
+        self.apply(member)  # Revoke access before removal; pending nodes cause retry.
+        result = self.request(
+            'clients/del/' + urllib.parse.quote(email, safe='') + '?keepTraffic=0', {}
+        )
+        if result and result.get('nodePending'):
+            raise RuntimeError('Node deletion pending')
+        if any(c['email'] == email for c in self.request('clients/list')):
+            raise RuntimeError('Panel deletion verification failed')
+
     def apply(self, member):
         email = member['panel_email']
         enabled = not bool(member['disabled'] or member.get('billing_blocked', False))
