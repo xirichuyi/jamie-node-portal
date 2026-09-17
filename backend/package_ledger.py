@@ -6,6 +6,7 @@ must separately verify the panel's cross-node enforcement semantics.
 """
 
 import secrets
+from cycles import install_rules, next_reset, expiry
 from errors import DomainError
 
 
@@ -49,6 +50,16 @@ def install(db):
         CREATE INDEX IF NOT EXISTS idx_billing_events_member
             ON billing_events(member_id,id);
     """)
+    install_rules(db, 'entitlement_packages')
+    if 'next_reset' not in {
+        r['name'] for r in db.execute('PRAGMA table_info(entitlement_packages)')
+    }:
+        db.execute(
+            'ALTER TABLE entitlement_packages ADD COLUMN next_reset INTEGER NOT NULL DEFAULT 0'
+        )
+    db.execute(
+        'CREATE INDEX IF NOT EXISTS idx_package_cycle_due ON entitlement_packages(member_id,next_reset) WHERE next_reset>0 AND revoked=0'
+    )
 
 
 def initialize(db, member, raw, now):
@@ -100,7 +111,7 @@ def sample(db, uid, raw, now):
         db.execute(
             """SELECT id,granted,spent FROM entitlement_packages WHERE member_id=?
         AND revoked=0 AND expires>? AND created<=? AND spent<granted
-        ORDER BY expires,created,id""",
+        ORDER BY CASE WHEN next_reset>0 THEN MIN(expires,next_reset) ELSE expires END,created,id""",
             (uid, state['sampled'], now),
         ).fetchall()
         if delta
@@ -121,16 +132,29 @@ def sample(db, uid, raw, now):
     )
     if rest:
         event(db, uid, None, 'overrun', rest, now)
+    # Only advance after a fresh cumulative sample. No sample => no free quota.
+    # Missed periods do not stack; the current period receives one allowance.
+    for row in db.execute(
+        'SELECT * FROM entitlement_packages WHERE member_id=? AND revoked=0 AND expires>? AND next_reset>0 AND next_reset<=?',
+        (uid, now, now),
+    ).fetchall():
+        p = dict(row)
+        db.execute(
+            'UPDATE entitlement_packages SET spent=0,next_reset=? WHERE id=?',
+            (next_reset(p, now, p['created']), p['id']),
+        )
+        event(db, uid, p['id'], 'cycle_reset', p['granted'], now)
 
 
 def targets(db, uid, now):
     return [
         dict(r)
         for r in db.execute(
-            """SELECT id,label,expires FROM entitlement_packages
+            """SELECT id,label,CASE WHEN next_reset>0 THEN MIN(expires,next_reset) ELSE expires END AS expires FROM entitlement_packages
         WHERE member_id=? AND kind IN ('base','transition') AND revoked=0 AND expires>?
-        ORDER BY expires,created,id""",
-            (uid, now),
+        AND (next_reset=0 OR next_reset>?)
+        ORDER BY CASE WHEN next_reset>0 THEN MIN(expires,next_reset) ELSE expires END,created,id""",
+            (uid, now, now),
         )
     ]
 
@@ -140,14 +164,20 @@ def grant(db, uid, card, now, target=None):
     if not state or state['fault']:
         raise DomainError('计费状态待核对，请联系管理员；卡密未消耗')
     kind = card['kind']
+    remaining = db.execute(
+        'SELECT COALESCE(SUM(granted-spent),0) FROM entitlement_packages WHERE member_id=? AND revoked=0 AND expires>?',
+        (uid, now),
+    ).fetchone()[0]
+    if state['raw'] + remaining + card['quota'] > 2**53 - 1:
+        raise DomainError('总额度超过精确计量范围；卡密未消耗')
     parent = None
     if kind == 'addon':
         parent = (
             db.execute(
-                """SELECT id,expires FROM entitlement_packages
+                """SELECT id,CASE WHEN next_reset>0 THEN MIN(expires,next_reset) ELSE expires END AS expires FROM entitlement_packages
             WHERE id=? AND member_id=? AND kind IN ('base','transition')
-            AND revoked=0 AND expires>?""",
-                (target, uid, now),
+            AND revoked=0 AND expires>? AND (next_reset=0 OR next_reset>?)""",
+                (target, uid, now, now),
             ).fetchone()
             if isinstance(target, str)
             else None
@@ -156,7 +186,8 @@ def grant(db, uid, card, now, target=None):
             raise DomainError('请选择属于自己的有效套餐；流量包不能延长有效期')
     elif kind != 'base':
         raise DomainError('卡密类型不正确')
-    expires = parent['expires'] if parent else now + card['days'] * 86400
+    card = {'permanent': 0, 'reset_period': 'never', 'reset_interval': 30, **dict(card)}
+    expires = parent['expires'] if parent else expiry(card, now)
     pid = secrets.token_hex(16)
     db.execute(
         """INSERT INTO entitlement_packages
@@ -174,6 +205,17 @@ def grant(db, uid, card, now, target=None):
             expires,
         ),
     )
+    if not parent:
+        db.execute(
+            'UPDATE entitlement_packages SET permanent=?,reset_period=?,reset_interval=?,next_reset=? WHERE id=?',
+            (
+                card['permanent'],
+                card['reset_period'],
+                card['reset_interval'],
+                next_reset(card, now),
+                pid,
+            ),
+        )
     event(db, uid, pid, 'grant', card['quota'], now)
     return pid
 
@@ -186,8 +228,8 @@ def snapshot(db, uid, now):
         dict(r)
         for r in db.execute(
             """SELECT id,parent_id,kind,label,granted,spent,
-        created,expires,revoked FROM entitlement_packages WHERE member_id=?
-        ORDER BY expires,created,id""",
+        created,expires,revoked,permanent,reset_period,reset_interval,next_reset FROM entitlement_packages WHERE member_id=?
+        ORDER BY CASE WHEN next_reset>0 THEN MIN(expires,next_reset) ELSE expires END,created,id""",
             (uid,),
         )
     ]
@@ -252,8 +294,13 @@ def desired(db, uid, now):
     if not s:
         raise DomainError('计费尚未初始化')
     # totalGB=0 means unlimited in the panel; disabled AND positive cap required.
+    boundary = db.execute(
+        'SELECT MIN(next_reset) FROM entitlement_packages WHERE member_id=? AND revoked=0 AND expires>? AND next_reset>0',
+        (uid, now),
+    ).fetchone()[0]
+    expires = s['next_expiry'] or s['last_expiry'] or now
     return {
         'quota': max(1, s['raw'] + s['remaining']),
-        'expires': s['next_expiry'] or s['last_expiry'] or now,
+        'expires': min(expires, boundary) if boundary else expires,
         'billing_blocked': bool(s['fault']) or not s['remaining'],
     }

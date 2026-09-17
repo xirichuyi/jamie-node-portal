@@ -30,8 +30,9 @@ import {
   SelectItem,
 } from '@/components/ui/select';
 import { api } from './api';
+import { CycleFields, ruleLabel, expiryLabel, type CycleRule } from './cycles';
 
-export type Plan = {
+export type Plan = CycleRule & {
   id: string;
   name: string;
   description: string;
@@ -388,9 +389,7 @@ export function PlansPage({
           <div>
             <span className="muted">有效期至</span>
             <strong>
-              {new Date(subscription.expires * 1000).toLocaleDateString(
-                'zh-CN',
-              )}
+              {expiryLabel(subscription.expires)}
             </strong>
           </div>
           <button className="text-link" onClick={() => navigate('history')}>
@@ -411,7 +410,7 @@ export function PlansPage({
               </header>
               <p className="compact-plan-quota">
                 {p.quota_gib}
-                <span>GiB / {p.days} 天</span>
+                <span>GiB · {ruleLabel(p)}</span>
               </p>
               <ul>
                 <li>
@@ -456,7 +455,7 @@ export function PlansPage({
         )}
       </section>
       <div className="plan-footnotes">
-        <details><summary>套餐规则</summary><p>{content?.package_billing ? '兑换后独立计时，到期剩余流量作废。加流量卡不延长有效期。' : '续费叠加流量和有效期，不按月重置。'}</p></details>
+        <details><summary>套餐规则</summary><p>{content?.package_billing ? '套餐按所选期限与重置周期生效。周期额度不结转；加流量卡随所属套餐当前周期到期。' : '续费叠加流量和有效期，不按月重置。'}</p></details>
         <button className="text-link" onClick={() => navigate('help')}>
           兑换遇到问题？
         </button>
@@ -492,7 +491,7 @@ export function HelpPage({
     ],
     [
       '续费会清空流量吗？',
-      packageBilling ? '每份套餐从兑换时独立计时，优先扣除最早到期套餐的流量，未用完的流量到期作废。加流量卡必须选择一个有效套餐，跟随该套餐到期，不增加天数。' : '不会清零已用流量。新卡额度叠加到总额度，有效期从原到期时间与当前时间中较晚的一者继续延长。本服务为总流量包，不按月自动重置。',
+      packageBilling ? '每份套餐独立生效，优先扣除最早到期或重置的额度。按开通日每月恢复固定额度，剩余不结转；加流量包随当前周期到期，不改变重置日。短月份取月末，后续月份仍按原开通日计算。' : '不会清零已用流量。新卡额度叠加到总额度，有效期从原到期时间与当前时间中较晚的一者继续延长。本服务为总流量包，不按月自动重置。',
     ],
     [
       '节点显示的延迟和我测的不一样？',
@@ -644,7 +643,7 @@ export function ContentAdmin({ onSaved }: { onSaved: () => Promise<void> }) {
                 <span>
                   <strong>{p.name}</strong>
                   <small>
-                    {p.quota_gib} GiB · {p.days} 天 ·{' '}
+                    {p.quota_gib} GiB · {ruleLabel(p)} ·{' '}
                     {p.published ? '已上架' : '草稿 / 已下架'}
                   </small>
                 </span>
@@ -699,19 +698,21 @@ export function ContentAdmin({ onSaved }: { onSaved: () => Promise<void> }) {
                   type="number"
                   required
                   min={1}
-                  max={8192}
+                  max={8388607}
                   value={plan.quota_gib}
                   onChange={(e) =>
                     setPlan({ ...plan, quota_gib: Number(e.target.value) })
                   }
                 />
               </Field>
-              <Field label="有效期（天）">
+              <CycleFields value={plan} onChange={rule => setPlan({ ...plan, ...rule })} />
+              <Field label="有效期（天，永久时忽略）">
                 <Input
                   type="number"
                   required
                   min={1}
-                  max={730}
+                  max={365000}
+                  disabled={!!plan.permanent}
                   value={plan.days}
                   onChange={(e) =>
                     setPlan({ ...plan, days: Number(e.target.value) })
@@ -940,7 +941,7 @@ export function PlanIssuer({
     <section className="plan-issuer">
       <h2>按套餐发卡</h2>
       <p className="small muted">
-        额度和天数使用后台已保存的套餐，不会修改现有卡密。
+        使用已保存的套餐规则，不会修改现有卡密。
       </p>
       <form
         onSubmit={(e) => {
@@ -971,7 +972,7 @@ export function PlanIssuer({
               <SelectContent>
                 {plans.map((p) => (
                   <SelectItem key={p.id} value={p.id}>
-                    {p.name} · {p.quota_gib} GiB / {p.days} 天
+                    {p.name} · {p.quota_gib} GiB · {ruleLabel(p)}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -987,13 +988,13 @@ export function PlanIssuer({
               defaultValue={1}
             />
           </Field>
-          <Field label="卡密兑换期限（天）">
+          <Field label="卡密兑换期限（天，0 为不限）">
             <Input
               name="valid_days"
               required
               type="number"
-              min={1}
-              max={730}
+              min={0}
+              max={365000}
               defaultValue={90}
             />
           </Field>

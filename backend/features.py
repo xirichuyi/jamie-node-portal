@@ -302,6 +302,7 @@ class Features:
                 raise DomainError('卡密已兑换，请查看兑换记录')
             if self.ledger.package_billing:
                 from package_ledger import targets, snapshot
+                from cycles import expiry
 
                 state = snapshot(db, account_id, now)
                 packages = targets(db, account_id, now)
@@ -315,12 +316,13 @@ class Features:
                     'quota': card['quota'],
                     'days': card['days'] if card['kind'] == 'base' else 0,
                     'kind': card['kind'],
+                    **{k: card[k] for k in ('permanent', 'reset_period', 'reset_interval')},
                     'targets': packages,
                     'package_billing': True,
                     'after_quota': (state['remaining'] if state else 0) + card['quota'],
                     'after_expires': (parent['expires'] if parent else 0)
                     if card['kind'] == 'addon'
-                    else now + card['days'] * 86400,
+                    else expiry(card, now),
                 }
             return {
                 'label': card['label'],

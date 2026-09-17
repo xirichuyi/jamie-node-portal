@@ -3,6 +3,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select';
 import { LoginDiagnosis } from './admin-support';
+import { expiryLabel, ruleLabel } from './cycles';
 import { DeleteAccount, PackageBalances, type PackageBalance } from './features';
 import {
   Sheet,
@@ -401,7 +402,7 @@ export function UserManager({
               </TableCell>
               <TableCell>
                 {u.expires
-                  ? new Date(u.expires * 1000).toLocaleDateString('zh-CN')
+                  ? expiryLabel(u.expires)
                   : '尚未开通'}
                 <small className="sync-caption">
                   {remainingTime(u.expires)}
@@ -530,7 +531,7 @@ export function UserManager({
                   </div>
                   <div>
                     <dt>有效期至</dt>
-                    <dd>{m.expires ? time(m.expires) : '尚未开通'}</dd>
+                    <dd>{m.expires ? expiryLabel(m.expires) : '尚未开通'}</dd>
                   </div>
                 </dl>
                 <p className="small muted">
@@ -545,7 +546,7 @@ export function UserManager({
                     <div className="user-record" key={i}>
                       <strong>{r.label}</strong>
                       <span>
-                        +{volume(r.quota)} GiB · {r.kind === 'addon' ? '不增加天数' : `${r.days} 天`}
+                        +{volume(r.quota)} GiB · {r.kind === 'addon' ? '不增加天数' : ruleLabel(r)}
                       </span>
                       <small>{time(r.redeemed_at)}</small>
                     </div>

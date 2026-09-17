@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { api } from './api';
+import { ruleLabel, FOREVER } from './cycles';
 import {
   Dialog,
   DialogContent,
@@ -30,7 +31,7 @@ type Diagnosis = {
   limited_until: number | null;
   note: string;
 };
-const date = (n: number) => new Date(n * 1000).toLocaleString('zh-CN');
+const date = (n: number) => n >= FOREVER ? '不限期' : new Date(n * 1000).toLocaleString('zh-CN');
 const outcomes: Record<string, string> = {
   unknown_user: '账号不存在',
   wrong_password: '密码不正确',
@@ -129,7 +130,7 @@ export function CardSearch({
                 <div>
                   <strong>{c.label}</strong>
                   <p className="small muted">
-                    尾号 {c.suffix} · {c.quota / 1024 ** 3} GiB / {c.kind === 'addon' ? '加流量，不加天数' : `${c.days} 天`}
+                    尾号 {c.suffix} · {c.quota / 1024 ** 3} GiB · {c.kind === 'addon' ? '加流量，不加天数' : ruleLabel(c)}
                   </p>
                 </div>
                 <div>

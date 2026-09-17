@@ -9,6 +9,7 @@ import React, {
 import { createRoot } from 'react-dom/client';
 import { DockViewport } from './dock-viewport';
 import { AuthFlow } from './auth';
+import { CycleFields, ruleLabel, FOREVER } from './cycles';
 const UserManager = React.lazy(() =>
   import('./admin-users').then((module) => ({ default: module.UserManager })),
 );
@@ -149,7 +150,7 @@ const gib = (bytes: number) =>
     bytes / 1024 ** 3,
   );
 const date = (seconds: number) =>
-  seconds
+  seconds >= FOREVER ? '永久有效' : seconds
     ? new Date(seconds * 1000).toLocaleString('zh-CN', {
         year: 'numeric',
         month: '2-digit',
@@ -168,6 +169,8 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
   );
 }
 function App() {
+  const [customKind, setCustomKind] = useState('base');
+  const [customCycle, setCustomCycle] = useState<import('./cycles').CycleRule>({ permanent: 0, reset_period: 'never', reset_interval: 30 });
   const [justActivated, setJustActivated] = useState(false);
   const [memberScope, setMemberScope] = useState('all');
   const { view, navigate: setView, back } = useNavigation();
@@ -654,7 +657,7 @@ function App() {
                             <p className="small muted">{date(h.redeemed_at)}</p>
                           </div>
                           <span>
-                            +{gib(h.quota)} GiB · {h.kind === 'addon' ? '不增加天数' : `${h.days} 天`}
+                            +{gib(h.quota)} GiB · {h.kind === 'addon' ? '不增加天数' : ruleLabel(h)}
                           </span>
                         </div>
                       ))}
@@ -840,6 +843,9 @@ function App() {
                             days: Number(f.get('days')),
                             count: Number(f.get('count')),
                             valid_days: Number(f.get('valid_days')),
+                            permanent: customKind === 'base' && f.get('permanent') === '1',
+                            reset_period: customKind === 'base' ? f.get('reset_period') || 'never' : 'never',
+                            reset_interval: Number(f.get('reset_interval') || 30),
                           };
                           const r = await api<{ codes: { code: string }[] }>(
                             'admin/cards',
@@ -855,7 +861,7 @@ function App() {
                     >
                       <div className="form-grid">
                         {content?.package_billing && <Field label="卡密类型">
-                          <Select name="kind" defaultValue="base"><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="base">独立套餐卡</SelectItem><SelectItem value="addon">加流量卡（不增加天数）</SelectItem></SelectContent></Select>
+                          <Select name="kind" value={customKind} onValueChange={v => setCustomKind(v || 'base')}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="base">独立套餐卡</SelectItem><SelectItem value="addon">加流量卡（不增加天数）</SelectItem></SelectContent></Select>
                         </Field>}
                         <Field label="卡名称">
                           <Input
@@ -872,17 +878,19 @@ function App() {
                             defaultValue={100}
                             required
                             min={1}
-                            max={8192}
+                            max={8388607}
                           />
                         </Field>
-                        <Field label="套餐时长（天；加流量卡忽略此项）">
+                        {customKind === 'base' && <CycleFields value={customCycle} onChange={setCustomCycle} />}
+                        <Field label="套餐天数（永久 / 加流量卡忽略）">
                           <Input
                             type="number"
                             name="days"
+                            disabled={customKind === 'addon' || !!customCycle.permanent}
                             defaultValue={30}
                             required
                             min={1}
-                            max={730}
+                            max={365000}
                           />
                         </Field>
                         <Field label="生成数量">
@@ -895,14 +903,14 @@ function App() {
                             max={100}
                           />
                         </Field>
-                        <Field label="卡密需在几天内兑换">
+                        <Field label="兑换期限（天，0 为不限）">
                           <Input
                             type="number"
                             name="valid_days"
                             defaultValue={90}
                             required
-                            min={1}
-                            max={730}
+                            min={0}
+                            max={365000}
                           />
                         </Field>
                       </div>

@@ -56,10 +56,25 @@ test('package accounting exposes independent expirations without promising perpe
     packages: [{id:'one', label:'Test package',kind:'base',granted:1024,spent:0,remaining:1024,expires:2000000000,status:'active'},
       {id:'two',label:'Top up',kind:'addon',granted:1024,spent:1024,remaining:0,expires:2000000000,status:'exhausted'}],
   }));
-  assert.match(html,/各套餐独立到期/);
+  assert.match(html,/最早到期或重置/);
   assert.match(html,/加流量包/);
   assert.match(html,/已用完/);
   assert.doesNotMatch(html,/叠加流量和有效期/);
+});
+test('permanent recurring plans show renewal without a fake expiry date', async () => {
+  const cycles = await vite.ssrLoadModule('/portal/cycles.tsx');
+  const rule = {permanent:1, reset_period:'monthly', days:1};
+  assert.equal(cycles.expiryLabel(cycles.FOREVER), '永久有效');
+  assert.equal(experience.remainingTime(cycles.FOREVER), '永久有效');
+  const html = renderToStaticMarkup(React.createElement(authentication.ActivationSummary, {plan:{...rule,label:'Monthly',quota:100*1024**3}}));
+  assert.match(html, /永久有效/);
+  assert.match(html, /按开通日每月重置/);
+  const fields = renderToStaticMarkup(React.createElement(cycles.CycleFields, {value:rule}));
+  assert.match(fields, /按开通日每月重置/);
+  assert.doesNotMatch(fields, /每月几日|固定日期/);
+  const balances = renderToStaticMarkup(React.createElement(features.PackageBalances, {packages:[{...rule,id:'cycle',label:'Monthly',kind:'base',granted:100,spent:100,remaining:0,expires:cycles.FOREVER,next_reset:2000000000,status:'exhausted'}]}));
+  assert.match(balances, /下次重置/);
+  assert.doesNotMatch(balances, /9999/);
 });
 test('admin support exposes card lookup and credential-free login diagnostics', () => {
   const cards = renderToStaticMarkup(

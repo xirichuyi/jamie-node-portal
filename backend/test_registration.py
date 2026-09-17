@@ -41,7 +41,17 @@ class RegistrationTests(unittest.TestCase):
 
     def test_preview_never_consumes_card_or_starts_expiry(self):
         result = self.app.card_preview(self.card['code'].lower().replace('-', ' '))
-        self.assertEqual(result, {'label': '开通套餐', 'quota': 100 * GIB, 'days': 30})
+        self.assertEqual(
+            result,
+            {
+                'label': '开通套餐',
+                'quota': 100 * GIB,
+                'days': 30,
+                'permanent': 0,
+                'reset_period': 'never',
+                'reset_interval': 30,
+            },
+        )
         self.assert_unspent()
         self.assertNotIn('digest', result)
 

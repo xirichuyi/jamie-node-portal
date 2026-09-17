@@ -102,7 +102,9 @@ class PerformanceTests(unittest.TestCase):
     def test_idle_counter_sample_does_not_fetch_packages(self):
         with self.app.ledger.transaction() as db:
             sample(db, 'user_1', 0, self.now + 1)
-        self.assertFalse(any('FROM entitlement_packages' in sql for sql in self.statements))
+        queries = [sql for sql in self.statements if 'FROM entitlement_packages' in sql]
+        self.assertEqual(len(queries), 1)
+        self.assertIn('next_reset>0 AND next_reset<=', queries[0])
 
     def test_recent_session_does_not_acquire_write_transaction(self):
         token = self.app.new_session('user_1')

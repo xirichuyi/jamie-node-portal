@@ -84,7 +84,7 @@ class ContentTests(unittest.TestCase):
 
     def test_invalid_numeric_values(self):
         data = self.content.read(True)['plans'][0]
-        for value in [0, -1, 8193, True, '100']:
+        for value in [0, -1, 8388608, True, '100']:
             with self.assertRaises(DomainError):
                 self.content.save('admin', 'plan', {**data, 'quota_gib': value, 'published': False})
         with self.assertRaises(DomainError):

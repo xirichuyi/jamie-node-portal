@@ -42,7 +42,7 @@ type Subscription = {
 const volume = (n: number) =>
   (n / 1024 ** 3).toLocaleString('zh-CN', { maximumFractionDigits: 2 });
 const deadline = (n: number) =>
-  n
+  n >= 253402185600 ? '永久有效' : n
     ? new Date(n * 1000).toLocaleDateString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit' })
     : '尚未开通';
 export function Dashboard({
@@ -61,6 +61,8 @@ export function Dashboard({
   busy: boolean;
 }) {
   const now = useNow();
+  const resetDates = (s.billing?.packages || []).filter(p => p.next_reset && p.next_reset < p.expires && (p.status === 'active' || p.status === 'exhausted')).map(p => p.next_reset!);
+  const nextReset = resetDates.length ? Math.min(...resetDates) : 0;
   const hasEntitlements = !!s.quota || !!s.billing?.packages.length;
   const remaining = s.used === null ? null : Math.max(0, s.quota - s.used),
     days = Math.ceil((s.expires - now) / 86400);
@@ -185,8 +187,8 @@ export function Dashboard({
                   <dd>{deadline(s.expires)}</dd>
                 </div>
                 <div>
-                  <dt>剩余时间</dt>
-                  <dd>{remainingTime(s.expires, now)}</dd>
+                  <dt>{nextReset ? '下次流量重置' : '剩余时间'}</dt>
+                  <dd>{nextReset ? deadline(nextReset) : remainingTime(s.expires, now)}</dd>
                 </div>
               </dl>
             </section>

@@ -139,7 +139,10 @@ class App:
                 raise DomainError('卡密无效、已使用或已过期；已开通过账号请直接登录')
             if card['kind'] != 'base':
                 raise DomainError('这是加流量卡，请登录已有账号并选择有效套餐后兑换，不能用于注册')
-            return {key: card[key] for key in ('label', 'quota', 'days')}
+            return {
+                key: card[key]
+                for key in ('label', 'quota', 'days', 'permanent', 'reset_period', 'reset_interval')
+            }
 
     def register_with_card(self, username, password, code, agent='', ip='', email_code=None):
         challenge = None
@@ -278,7 +281,7 @@ class App:
             history = [
                 dict(r)
                 for r in db.execute(
-                    """SELECT label,quota,days,kind,redeemed_at
+                    """SELECT label,quota,days,kind,redeemed_at,permanent,reset_period,reset_interval
                 FROM cards WHERE redeemed_by=? ORDER BY redeemed_at DESC LIMIT 50""",
                     (account['id'],),
                 )
@@ -321,7 +324,9 @@ class App:
             'subscription': {
                 'quota': display_quota,
                 'used': used,
-                'expires': member['expires'],
+                'expires': (billing['next_expiry'] or billing['last_expiry'])
+                if billing
+                else member['expires'],
                 'billing': billing,
                 'pending': member['revision'] > member['synced_revision'],
                 'sync_error': member['sync_error'],
@@ -352,6 +357,31 @@ class App:
                 print('Sync worker:', type(exc).__name__, flush=True)
             self.wake.wait(15)
             self.wake.clear()
+
+    def subscription_info(self, sub_id):
+        """Token-scoped metadata for the local adapter; never account identity."""
+        from package_ledger import summaries
+        from cycles import FOREVER
+
+        with self.ledger.connect() as db:
+            member = db.execute(
+                'SELECT id,disabled,deleting,previous_sub_id FROM members WHERE sub_id=?', (sub_id,)
+            ).fetchone()
+            if not member:
+                return None  # Panel-owned monitoring subscriptions keep their metadata.
+            if member['disabled'] or member['deleting'] or member['previous_sub_id']:
+                raise HttpError(403, 'Subscription unavailable')
+            if not self.ledger.package_billing:
+                return None
+            s = summaries(db, int(time.time()), member['id']).get(member['id'])
+            if not s:
+                return None
+            expires = s['next_expiry'] or s['last_expiry']
+            if s['quota']:
+                total, used = s['quota'], s['used']
+            else:
+                total = used = max(1, s['historical_quota'])
+            return f'upload=0; download={used}; total={total}; expire={0 if expires >= FOREVER else expires}'
 
     def refresh_billing(self):
         values = {}
@@ -416,6 +446,15 @@ class Handler(BaseHTTPRequestHandler):
         if not write and path == '/api/health':
             return self.reply(200, {'ok': True})
         app.limit('request:' + ip, 240, 60)
+        if not write and path.startswith('/internal/subscription-info/'):
+            if self.client_address[0] not in ('127.0.0.1', '::1') or any(
+                self.headers.get(h) for h in ('X-Forwarded-For', 'X-Real-IP', 'Forwarded')
+            ):
+                raise HttpError(404, 'Not found')
+            token = path.rsplit('/', 1)[-1]
+            if not re.fullmatch(r'[A-Za-z0-9_-]{16,128}', token):
+                raise HttpError(404, 'Not found')
+            return self.reply(200, {'usage': app.subscription_info(token)})
         if not write and path == '/api/content':
             return self.reply(200, app.content.read())
         data = {}
@@ -712,6 +751,9 @@ class Handler(BaseHTTPRequestHandler):
                     data['count'],
                     data['valid_days'],
                     kind=plan.get('kind', 'base'),
+                    permanent=plan.get('permanent', False),
+                    reset_period=plan.get('reset_period', 'never'),
+                    reset_interval=plan.get('reset_interval', 30),
                 )
                 return self.reply(200, {'codes': codes})
             if write and path == '/api/admin/revoke':
@@ -761,7 +803,8 @@ class Handler(BaseHTTPRequestHandler):
                     hashed = hash_password(new_password)
                 with app.ledger.transaction() as db:
                     target = db.execute(
-                        'SELECT a.*,m.deleting FROM accounts a JOIN members m ON m.id=a.id WHERE a.id=? AND a.admin=0', (data['id'],)
+                        'SELECT a.*,m.deleting FROM accounts a JOIN members m ON m.id=a.id WHERE a.id=? AND a.admin=0',
+                        (data['id'],),
                     ).fetchone()
                     if not target:
                         raise DomainError('用户不存在')
@@ -779,7 +822,7 @@ class Handler(BaseHTTPRequestHandler):
                 with app.ledger.connect() as db:
                     cards = [
                         dict(r)
-                        for r in db.execute("""SELECT c.id,c.suffix,c.label,c.quota,c.days,
+                        for r in db.execute("""SELECT c.id,c.suffix,c.label,c.quota,c.days,c.permanent,c.reset_period,c.reset_interval,
                         c.redeem_before,c.created,c.redeemed_at,c.revoked_at,a.username AS redeemed_by
                         FROM cards c LEFT JOIN accounts a ON a.id=c.redeemed_by ORDER BY c.created DESC,c.id LIMIT 500""")
                     ]

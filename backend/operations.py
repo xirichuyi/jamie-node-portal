@@ -86,7 +86,7 @@ class Operations:
             rows = [
                 dict(r)
                 for r in db.execute(
-                    """SELECT c.id,c.suffix,c.label,c.quota,c.days,c.kind,
+                    """SELECT c.id,c.suffix,c.label,c.quota,c.days,c.kind,c.permanent,c.reset_period,c.reset_interval,
                 c.redeem_before,c.created,c.redeemed_at,c.revoked_at,
                 a.username AS redeemed_by,a.id AS account_id"""
                     + join

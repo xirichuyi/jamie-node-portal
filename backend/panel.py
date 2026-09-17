@@ -94,7 +94,7 @@ class Panel:
             auth=member['panel_auth'],
             subId=member['sub_id'],
             totalGB=member['quota'],
-            expiryTime=member['expires'] * 1000,
+            expiryTime=0 if member['expires'] >= 253402185600 else member['expires'] * 1000,
             enable=enabled,
             group='Jamie-Node',
             trafficReset='never',
@@ -119,7 +119,8 @@ class Panel:
             or c['auth'] != member['panel_auth']
             or c['enable'] != enabled
             or c['totalGB'] != member['quota']
-            or c['expiryTime'] != member['expires'] * 1000
+            or c['expiryTime']
+            != (0 if member['expires'] >= 253402185600 else member['expires'] * 1000)
             or not set(self.inbounds).issubset(verified['inboundIds'])
         ):
             raise RuntimeError('Panel entitlement verification failed')

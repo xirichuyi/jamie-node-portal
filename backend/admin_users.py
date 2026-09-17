@@ -126,6 +126,7 @@ class UserWorkspace:
             row['remaining'] = None if row['used'] is None else max(0, row['quota'] - row['used'])
             billing = billing_by_id.get(row['id'])
             if billing:
+                row['expires'] = billing['next_expiry'] or billing['last_expiry']
                 row['quota'] = billing['quota']
                 row['used'] = billing['used']
                 row['remaining'] = billing['remaining']
@@ -215,7 +216,7 @@ class UserWorkspace:
             history = [
                 dict(r)
                 for r in db.execute(
-                    """SELECT label,quota,days,kind,redeemed_at FROM cards
+                    """SELECT label,quota,days,kind,redeemed_at,permanent,reset_period,reset_interval FROM cards
                 WHERE redeemed_by=? ORDER BY redeemed_at DESC,id DESC LIMIT 50""",
                     (uid,),
                 )

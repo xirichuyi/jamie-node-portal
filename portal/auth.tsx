@@ -5,8 +5,9 @@ import { Input } from '@/components/ui/input';
 import { Contact } from './content';
 import { api, ApiError } from './api';
 import { EmailCode } from './email-code';
+import { ruleLabel, type CycleRule } from './cycles';
 
-type Preview = { label: string; quota: number; days: number };
+type Preview = CycleRule & { label: string; quota: number; days: number };
 export function ActivationSummary({ plan }: { plan: Preview }) {
   return (
     <div className="activation-summary">
@@ -15,7 +16,7 @@ export function ActivationSummary({ plan }: { plan: Preview }) {
         {(plan.quota / 1024 ** 3).toLocaleString('zh-CN', {
           maximumFractionDigits: 2,
         })}{' '}
-        GiB · {plan.days} 天
+        GiB · {ruleLabel(plan)}
       </span>
       <p className="small muted">
         开通成功后开始计时，验证卡密不会扣卡。

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 
 export function remainingTime(expires: number, now = Date.now() / 1000) {
+  if (expires >= 253402185600) return '永久有效';
   const seconds = expires - now;
   if (!expires) return '尚未开通';
   if (seconds <= 0) return '已到期';

@@ -83,6 +83,9 @@ class Ledger:
                     )
             if 'kind' not in {r['name'] for r in db.execute('PRAGMA table_info(cards)')}:
                 db.execute("ALTER TABLE cards ADD COLUMN kind TEXT NOT NULL DEFAULT 'base'")
+            from cycles import install_rules
+
+            install_rules(db, 'cards')
             if 'billing_blocked' not in columns:
                 db.execute(
                     'ALTER TABLE members ADD COLUMN billing_blocked INTEGER NOT NULL DEFAULT 0'
@@ -140,7 +143,16 @@ class Ledger:
                 ),
             )
 
-    def issue(self, actor, label, quota_gib, days, count, valid_days, kind='base'):
+    def issue(self, actor, label, quota_gib, days, count, valid_days, kind='base', **options):
+        from cycles import rules, MAX_GIB, FOREVER
+
+        rule = rules(options)
+        if (rule['permanent'] or rule['reset_period'] != 'never') and not self.package_billing:
+            raise DomainError('请先启用套餐计费')
+        if kind == 'addon' and (rule['permanent'] or rule['reset_period'] != 'never'):
+            raise DomainError('加流量卡不单独设置期限或重置周期')
+        if rule['permanent']:
+            days = 1  # Preserve the historical SQL CHECK; permanent is explicit.
         if kind not in ('base', 'addon') or (kind == 'addon' and not self.package_billing):
             raise DomainError('流量包计费尚未启用')
         if kind == 'addon':
@@ -148,10 +160,10 @@ class Ledger:
         if not all(type(v) is int for v in (quota_gib, days, count, valid_days)):
             raise DomainError('请输入整数')
         if not (
-            1 <= quota_gib <= 8192
-            and 1 <= days <= 730
+            1 <= quota_gib <= MAX_GIB
+            and 1 <= days <= 365000
             and 1 <= count <= 100
-            and 1 <= valid_days <= 730
+            and 0 <= valid_days <= 365000
             and 1 <= len(label.strip()) <= 60
         ):
             raise DomainError('卡密参数超出范围')
@@ -173,11 +185,15 @@ class Ledger:
                         label.strip(),
                         quota_gib * GIB,
                         days,
-                        now + valid_days * 86400,
+                        now + valid_days * 86400 if valid_days else FOREVER,
                         now,
                         actor,
                         kind,
                     ),
+                )
+                db.execute(
+                    'UPDATE cards SET permanent=?,reset_period=?,reset_interval=? WHERE id=?',
+                    (*rule.values(), card_id),
                 )
                 result.append({'id': card_id, 'code': code})
                 self.audit(db, actor, 'card.issue', card_id)

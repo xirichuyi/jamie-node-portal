@@ -1,3 +1,4 @@
+import { expiryLabel, ruleLabel } from './cycles';
 import {
   useCallback,
   useEffect,
@@ -46,19 +47,19 @@ type Subscription = {
   rotating?: boolean;
   billing?: { packages: PackageBalance[]; remaining: number; next_expiry: number } | null;
 };
-export type PackageBalance = { id: string; parent_id?: string | null; label: string; kind: string; granted: number; spent: number; remaining: number; expires: number; status: string };
+export type PackageBalance = import('./cycles').CycleRule & { id: string; parent_id?: string | null; label: string; kind: string; granted: number; spent: number; remaining: number; expires: number; status: string; next_reset?: number };
 export function PackageBalances({ packages }: { packages: PackageBalance[] }) {
   const active = packages.filter(p => p.status === 'active');
   return <section className="surface">
     <h2>套餐与流量包</h2>
-    <p className="small muted">优先使用最早到期的流量；各套餐独立到期，剩余流量到期作废。加流量包跟随所属套餐到期，不延长时间。</p>
+    <p className="small muted">优先使用最早到期或重置的额度。周期额度不结转；加流量包随所属套餐当前周期到期，不延长时间。</p>
     {!!active.length && <p className="small">当前优先扣除：{active[0].label}</p>}
     <div className="package-detail-list">{packages.map(p => <article className="package-detail-row" key={p.id}>
       <div><strong>{p.label}</strong><small className="sync-caption">{p.kind === 'addon' ? '加流量包' : p.kind === 'transition' ? '原有剩余额度' : '独立套餐'} · {{active:'有效',expired:'已到期',exhausted:'已用完',revoked:'已撤销'}[p.status] || p.status}{p.status === 'active' ? ` · 扣除顺序 ${active.indexOf(p) + 1}` : ''}</small>
         {p.parent_id && <small className="sync-caption">所属套餐：{packages.find(parent => parent.id === p.parent_id)?.label || '查看兑换记录'}</small>}
       </div>
       <div><strong>剩余 {size(p.remaining)}</strong><small className="sync-caption">已用 {size(p.spent)} / {size(p.granted)}</small></div>
-      <div><span>{new Date(p.expires * 1000).toLocaleDateString('zh-CN', { year:'numeric', month:'2-digit', day:'2-digit' })}</span><small className="sync-caption">到期时间</small></div>
+      <div><span>{expiryLabel(p.expires)}</span><small className="sync-caption">到期时间</small>{!!p.next_reset && p.next_reset < p.expires && <small className="sync-caption">下次重置 {expiryLabel(p.next_reset)} · 不结转</small>}</div>
     </article>)}</div>
   </section>;
 }
@@ -70,7 +71,7 @@ const size = (n: number) =>
   n >= 1024 ** 3
     ? `${(n / 1024 ** 3).toFixed(2)} GiB`
     : `${(n / 1024 ** 2).toFixed(1)} MiB`;
-const expiryDate = (n: number) => n ? new Date(n * 1000).toLocaleDateString('zh-CN') : '—';
+const expiryDate = expiryLabel;
 function useWork() {
   const [busy, setBusy] = useState(false),
     [message, setMessage] = useState(''),
@@ -654,7 +655,7 @@ export function UsagePanel({
     </section>
   );
 }
-type Preview = {
+type Preview = import('./cycles').CycleRule & {
   label: string;
   quota: number;
   days: number;
@@ -758,7 +759,7 @@ export function Redemption({
                   <div>
                     <dt>本次增加</dt>
                     <dd>
-                      {size(preview.quota)} · {preview.kind === 'addon' ? '不增加天数' : `${preview.days} 天`}
+                      {size(preview.quota)} · {preview.kind === 'addon' ? '不增加天数' : ruleLabel(preview)}
                     </dd>
                   </div>
                   <div>

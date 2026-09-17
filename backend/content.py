@@ -7,6 +7,7 @@ import threading
 import time
 from urllib.parse import urlsplit
 from errors import DomainError
+from cycles import install_rules, rules, MAX_GIB
 
 
 def text(data, key, maximum, required=True):
@@ -54,6 +55,7 @@ class Content:
                 );
                 CREATE TABLE IF NOT EXISTS portal_migrations (version INTEGER PRIMARY KEY);
             """)
+            install_rules(db, 'portal_plans')
         with ledger.transaction() as db:
             if not db.execute('SELECT 1 FROM portal_migrations WHERE version=1').fetchone():
                 now = int(time.time())
@@ -74,7 +76,7 @@ class Content:
                     ('extended', '长效季卡', 300, 90, '更长有效期，按需使用总流量。', '', 0, 2),
                 ]:
                     db.execute(
-                        'INSERT INTO portal_plans VALUES(?,?,?,?,?,?,?,?,?,?,?)',
+                        'INSERT INTO portal_plans(id,name,description,quota_gib,days,price_label,badge,published,sort_order,revision,updated) VALUES(?,?,?,?,?,?,?,?,?,?,?)',
                         (pid, name, desc, quota, days, '', badge, published, order, 1, now),
                     )
                 db.execute(
@@ -169,13 +171,18 @@ class Content:
             values = {
                 'name': text(data, 'name', 60),
                 'description': text(data, 'description', 500, False),
-                'quota_gib': integer(data, 'quota_gib', 1, 8192),
-                'days': integer(data, 'days', 1, 730),
+                'quota_gib': integer(data, 'quota_gib', 1, MAX_GIB),
+                'days': 1 if data.get('permanent') else integer(data, 'days', 1, 365000),
                 'price_label': text(data, 'price_label', 40, False),
                 'badge': text(data, 'badge', 20, False),
                 'published': flag(data, 'published'),
                 'sort_order': integer(data, 'sort_order', 0, 999),
             }
+            values.update(rules(data))
+            if (
+                values['permanent'] or values['reset_period'] != 'never'
+            ) and not self.ledger.package_billing:
+                raise DomainError('请先启用套餐计费')
             if values['price_label'] and re.fullmatch(r'[\d.]+', values['price_label']):
                 raise DomainError('价格请同时填写币种，例如 30 元；留空表示咨询管理员')
         elif kind == 'notice':
