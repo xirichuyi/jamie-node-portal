@@ -120,6 +120,22 @@ class DeletionTests(unittest.TestCase):
         self.assertIsNotNone(self.app.session(self.token))
         self.panel.remove.assert_not_called()
 
+    def test_admin_deletes_without_password_or_typed_confirmation(self):
+        with self.assertRaises(DomainError):
+            self.deletion.request(self.user, self.other, admin_action=True)
+        self.assertTrue(self.deletion.request(self.admin, self.uid, admin_action=True)['pending'])
+        self.assertIsNone(self.app.session(self.token))
+        self.deletion.process()
+        with self.app.ledger.connect() as db:
+            self.assertIsNone(db.execute('SELECT id FROM accounts WHERE id=?', (self.uid,)).fetchone())
+
+    def test_revoked_admin_role_cannot_use_admin_deletion(self):
+        with self.app.ledger.transaction() as db:
+            db.execute('UPDATE accounts SET admin=0 WHERE id=?', (self.aid,))
+        with self.assertRaises(DomainError):
+            self.deletion.request(self.admin, self.uid, admin_action=True)
+        self.assertIsNotNone(self.app.session(self.token))
+
     def test_package_and_addon_foreign_keys_are_erased(self):
         self.app.ledger.package_billing = True
         base = self.app.ledger.issue(self.aid, 'base', 1, 30, 1, 30)[0]['code']
@@ -173,6 +189,13 @@ class DeletionTests(unittest.TestCase):
             }
             self.assertEqual(post('/api/admin/user-delete', payload)[0], 403)
             self.assertEqual(post('/api/account/delete', payload, 'https://untrusted.test')[0], 403)
+            user_token = self.token
+            with self.app.ledger.transaction() as db:
+                db.execute('UPDATE accounts SET must_change=0 WHERE id=?', (self.aid,))
+            self.token = self.app.new_session(self.aid)
+            self.assertEqual(post('/api/admin/user-delete', {'id': self.other}, 'https://untrusted.test')[0], 403)
+            self.assertEqual(post('/api/admin/user-delete', {'id': self.other})[0], 202)
+            self.token = user_token
             result = post('/api/account/delete', payload)
             self.assertEqual(result[0], 202)
             self.assertIn('Max-Age=0', result[1])
@@ -182,7 +205,7 @@ class DeletionTests(unittest.TestCase):
                     db.execute('SELECT deleting FROM members WHERE id=?', (self.other,)).fetchone()[
                         0
                     ],
-                    0,
+                    1,
                 )
         finally:
             server.shutdown()

@@ -153,7 +153,7 @@ main.wide:is(
 .notification-preference input { width: 18px; height: 18px; accent-color: var(--jamie-accent); }
 .notification-preference small { display: block; }
 .ticket-unread { color: var(--jamie-accent); }
-.delete-account-button { color: var(--destructive); margin-top: 12px; }
+.delete-account-button { color: var(--destructive); }
 .email-change-disclosure { max-width:480px; margin-top:12px; }
 .email-change-disclosure summary { cursor:pointer; padding:12px 0; color:var(--jamie-accent); font-size:.875rem; }
 .package-detail-row { display:grid; grid-template-columns:1.2fr 1fr 1fr; gap:16px; padding:20px 0; border-bottom:1px solid var(--border); font-size:.875rem; }

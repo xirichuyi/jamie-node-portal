@@ -3,7 +3,7 @@
 User: My account → Email & account security → Delete account.
 Admin: Users → User detail → Account actions → Delete account.
 
-Both actions require the acting account's password and an exact target username confirmation. Ordinary users can only delete themselves. Administrator accounts are protected. These endpoints enqueue erasure and return 202, not a false completed result.
+Admin deletion uses the authenticated admin session with one confirmation dialog, without another password or typed username. Self-service deletion requires the current password and exact username confirmation. Ordinary users can only delete themselves. Administrator accounts are protected. These endpoints enqueue erasure and return 202, not a false completed result.
 
 Request immediately disables website access, revokes sessions, cancels queued mail and marks the member deleting. The sync worker retries deletion; regular provisioning skips deleting members. Panel ownership is checked using the current/previous subscription ID and auth secret. The client is disabled through the existing node-aware update path before calling `clients/del/{email}?keepTraffic=0`. Local ownership is retained on error for safe retry. Existing established connections remain subject to node kernel teardown behavior.
 

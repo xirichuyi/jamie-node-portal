@@ -14,9 +14,13 @@ class AccountDeletion:
                 attempts INTEGER NOT NULL DEFAULT 0
             )""")
 
-    def request(self, actor, target_id, confirmation, password):
+    def request(self, actor, target_id, confirmation=None, password=None, *, admin_action=False):
         app = self.app
-        app.reauthenticate(actor, password)
+        if admin_action:
+            if not actor['admin']:
+                raise DomainError('仅管理员可访问')
+        else:
+            app.reauthenticate(actor, password)
         if actor['id'] != target_id and not actor['admin']:
             raise DomainError('只能注销自己的账号')
         with app.account_lifecycle_lock, app.ledger.billing_lock, app.ledger.transaction() as db:
@@ -28,6 +32,7 @@ class AccountDeletion:
                 not current_actor
                 or current_actor['disabled']
                 or current_actor['password'] != actor['password']
+                or (admin_action and not current_actor['admin'])
             ):
                 raise DomainError('登录状态已变化，请重新登录')
             target = db.execute('SELECT * FROM accounts WHERE id=?', (target_id,)).fetchone()
@@ -35,7 +40,7 @@ class AccountDeletion:
                 raise DomainError('账号不存在')
             if target['admin']:
                 raise DomainError('管理员账号不支持注销或删除')
-            if confirmation != target['username']:
+            if not admin_action and confirmation != target['username']:
                 raise DomainError('请输入要删除的完整账号')
             db.execute(
                 'INSERT OR IGNORE INTO account_deletions(account_id,requested) VALUES(?,?)',

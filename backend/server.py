@@ -638,8 +638,7 @@ class Handler(BaseHTTPRequestHandler):
                     app.account_deletion.request(
                         account,
                         text(data.get('id'), 64),
-                        data.get('confirmation'),
-                        data.get('password'),
+                        admin_action=True,
                     ),
                 )
             if write and path in ('/api/admin/card-search', '/api/admin/login-diagnosis'):
