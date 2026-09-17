@@ -19,6 +19,22 @@ const authentication = await vite.ssrLoadModule('/portal/auth.tsx');
 const users = await vite.ssrLoadModule('/portal/admin-users.tsx');
 const notices = await vite.ssrLoadModule('/portal/notice-entry.tsx');
 const support = await vite.ssrLoadModule('/portal/admin-support.tsx');
+test('usage windows remove uncollected leading dates but preserve real zero and internal gaps', () => {
+  const rows = [null, null, 0, null, 1024].map((bytes, i) => ({ day: `2026-09-${10+i}`, bytes, partial: false }));
+  for (const compact of [true, false]) {
+    assert.deepEqual(features.usageWindow(rows, compact).map(d => d.bytes), [0, null, 1024]);
+    assert.deepEqual(features.usageWindow(rows.slice(0, 2), compact), []);
+  }
+});
+test('secondary pages hide the notice strip and help avoids promotional heading', () => {
+  const html = renderToStaticMarkup(React.createElement(notices.NoticeEntry, {
+    notices: [{ id:'published', title:'Notice', body:'Body', published:1, pinned:1, created:1, updated:1, revision:1, category:'info' }],
+    ready:true, showStrip:false, navigate:()=>{},
+  }));
+  assert.doesNotMatch(html, /entry-notice/);
+  const help = renderToStaticMarkup(React.createElement(content.HelpPage, {navigate:()=>{}}));
+  assert.doesNotMatch(help, /遇到问题，先从这里开始|导入、续费和连接问题的常见解答/);
+});
 test('email recovery is the default and retains a legacy recovery entry', () => {
   const html = renderToStaticMarkup(React.createElement(features.Recover, {navigate: () => {}}));
   assert.match(html, /注册邮箱/);

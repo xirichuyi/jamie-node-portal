@@ -9,7 +9,7 @@ import {
 } from './journeys';
 import { PlansPage, Announcements, PageTitle, type Catalog } from './content';
 import { NoticeEntry } from './notice-entry';
-import { Connection, Operations, Tickets, Sessions } from './features';
+import { Connection, Operations, Tickets, Sessions, UsagePanel } from './features';
 import '@/app/globals.css';
 import './style.css';
 import './content.css';
@@ -195,6 +195,7 @@ function Review() {
                 ['guide', '使用'],
                 ['account', '我的'],
                 ['subscription', '订阅'],
+                ['usage', '用量明细'],
                 ['operations', '运营概览'],
                 ['tickets', '工单'],
                 ['sessions', '会话与恢复码'],
@@ -255,6 +256,7 @@ function Review() {
         )}
         {view === 'tickets' && <Tickets />}
         {view === 'sessions' && <Sessions />}
+        {view === 'usage' && <><PageTitle eyebrow="" title="用量明细" description="" /><UsagePanel navigate={navigate} /></>}
       </main>
       <nav className="dock" aria-label="主导航">
         {[

@@ -410,6 +410,7 @@ function App() {
           'operations',
         ].includes(view) && (
           <NoticeEntry
+            showStrip={view === 'home'}
             notices={content?.notices || []}
             ready={!!content}
             navigate={navigate}
@@ -476,9 +477,9 @@ function App() {
             {view === 'usage' && me && (
               <>
                 <PageTitle
-                  eyebrow="USAGE"
+                  eyebrow=""
                   title="用量明细"
-                  description="了解最近的使用情况。"
+                  description=""
                 />
                 <UsagePanel navigate={navigate} />
               </>

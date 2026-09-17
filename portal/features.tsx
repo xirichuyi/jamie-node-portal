@@ -561,6 +561,11 @@ type Usage = {
   started: number;
   timezone: string;
 };
+export function usageWindow(days: Usage['days'], compact: boolean) {
+  const range = days.slice(compact ? -7 : -30);
+  const first = range.findIndex(d => d.bytes !== null);
+  return first < 0 ? [] : range.slice(first);
+}
 export function UsagePanel({
   compact = false,
   navigate,
@@ -569,28 +574,27 @@ export function UsagePanel({
   navigate: Nav;
 }) {
   const { data, placeholder } = useData<Usage>('usage');
-  const range = data?.days.slice(compact ? -7 : 0) || [];
-  const firstRecorded = range.findIndex(d => d.bytes !== null);
-  const days = compact ? (firstRecorded < 0 ? [] : range.slice(firstRecorded)) : range;
+  const days = usageWindow(data?.days || [], compact);
   return (
     <section className="section usage-panel">
-      <div className="section-heading">
-        <h2>{compact ? days.length === 1 ? '今日用量' : '最近用量' : '用量记录'}</h2>
+      {compact && <div className="section-heading">
+        <h2>{days.length === 1 ? '今日用量' : '最近用量'}</h2>
         {compact && (
           <button className="text-link" onClick={() => navigate('usage')}>
             查看明细 →
           </button>
         )}
-      </div>
+      </div>}
       {placeholder}
       {data && (
         <>
-          <div className="usage-summary">
+          {!days.length && <p className="empty muted">暂无用量记录</p>}
+          {!!days.length && <div className="usage-summary">
             <strong>
               {days.some(d => d.bytes !== null) ? size(days.reduce((sum, d) => sum + (d.bytes || 0), 0)) : '—'}
             </strong>
-          </div>
-          <div className={compact ? 'usage-bars usage-bars-compact' : 'usage-bars'} aria-label="每日已记录流量">
+          </div>}
+          {!!days.length && <div className={compact ? 'usage-bars usage-bars-compact' : 'usage-bars usage-bars-detail'} aria-label="每日已记录流量">
             {days.map((d, index) => (
               <div
                 key={d.day}
@@ -611,44 +615,33 @@ export function UsagePanel({
                   />
                 </div>
                 <small>
-                  {compact || index % 5 === 0 || index === days.length - 1
-                    ? d.day.slice(8)
+                  {compact || days.length <= 7 || index % 5 === 0 || index === days.length - 1
+                    ? d.day.slice(5).replace('-', '/')
                     : '\u00a0'}
                 </small>
               </div>
             ))}
-          </div>
+          </div>}
           {data.sampled > 0 && Date.now() / 1000 - data.sampled > 900 && (
             <p className="message error">
               用量暂未更新，最后采样：{when(data.sampled)}
             </p>
           )}
-          {!compact && (
+          {!compact && days.length > 0 && (
             <>
-              <p className="small muted">
-                按北京时间统计。跨日采样、计数重置或中断可能产生部分记录；订阅剩余额度以首页为准。
-              </p>
               <Table>
                 <TableHeader>
                   <TableRow>
                     <TableHead>日期</TableHead>
-                    <TableHead>已记录用量</TableHead>
-                    <TableHead>记录状态</TableHead>
+                    <TableHead>用量</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {[...days].reverse().map((d) => (
+                  {[...days].reverse().filter(d => d.bytes !== null).map((d) => (
                     <TableRow key={d.day}>
                       <TableCell>{d.day}</TableCell>
-                      <TableCell>
+                      <TableCell title={d.partial ? '部分记录' : undefined}>
                         {d.bytes === null ? '—' : size(d.bytes)}
-                      </TableCell>
-                      <TableCell>
-                        {d.bytes === null
-                          ? '暂无数据'
-                          : d.partial
-                            ? '部分记录'
-                            : '已记录'}
                       </TableCell>
                     </TableRow>
                   ))}

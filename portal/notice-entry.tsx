@@ -41,10 +41,12 @@ export function NoticeEntry({
   notices,
   ready,
   navigate,
+  showStrip = true,
 }: {
   notices: Notice[];
   ready: boolean;
   navigate: (view: string) => void;
+  showStrip?: boolean;
 }) {
   const [read, setRead] = useState(acknowledged),
     [selected, setSelected] = useState<string | null>(null);
@@ -78,7 +80,7 @@ export function NoticeEntry({
   const latest = unread[0] || visible[0];
   return (
     <>
-      <aside className="entry-notice" aria-label="站点公告">
+      {showStrip && <aside className="entry-notice" aria-label="站点公告">
         <button
           className="entry-notice-title"
           onClick={() => setSelected(latest.id)}
@@ -91,7 +93,7 @@ export function NoticeEntry({
         <button className="text-link" onClick={() => navigate('notices')}>
           全部公告
         </button>
-      </aside>
+      </aside>}
       <Dialog
         open={!!current}
         onOpenChange={(value) => {

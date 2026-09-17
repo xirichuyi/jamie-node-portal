@@ -571,6 +571,8 @@ main h3 {
 .plan-footnotes summary { cursor: pointer; }
 .plan-footnotes details p { margin-top: 10px; max-width: 52ch; }
 .usage-bars-compact small { font-size: 11px; }
+.usage-bars-detail > div { flex: 0 1 48px; }
+.usage-bars-detail .usage-track { max-width: 22px; }
 .home-secondary .section {
   margin-top: 0;
   padding: 0;

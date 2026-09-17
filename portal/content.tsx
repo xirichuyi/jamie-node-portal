@@ -510,9 +510,9 @@ export function HelpPage({
   return (
     <>
       <PageTitle
-        eyebrow="HELP & SUPPORT"
-        title="遇到问题，先从这里开始"
-        description="导入、续费和连接问题的常见解答。"
+        eyebrow=""
+        title="帮助"
+        description=""
       />
       <Contact support={support} />
       <section className="section">
