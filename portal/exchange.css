@@ -1,0 +1,91 @@
+/* Borderless customer layout experiment. Admin and portalled dialogs are untouched. */
+.exchange-layout :is(
+  .home-primary, .quota-sheet, .home-connect, .connection-panel,
+  .surface, .section, .region-card, .node-panel, .compact-plan,
+  .contact-box, .contact-inline, .profile-menu, .profile-summary,
+  .redeem-banner, .download-panel, .auth, .welcome-flow,
+  .guide-stage, .activation-summary, .activation-welcome, .admin-entry
+) {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+.exchange-layout .page-heading { margin-bottom: 24px; }
+.exchange-layout.view-home .context-label { display: none; }
+.exchange-layout .home-primary {
+  border-block: 1px solid var(--jamie-border);
+  grid-template-columns: 1fr 1fr;
+  gap: 0;
+}
+.exchange-layout .quota-sheet { padding: 24px 32px 24px 0; }
+.exchange-layout .home-connect {
+  border-left: 1px solid var(--jamie-border);
+}
+.exchange-layout .home-connect .connection-panel,
+.exchange-layout .home-connect .renew-sheet { padding: 24px 0 24px 32px; }
+.exchange-layout .quota-value {
+  font-size: 2.6rem;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -.045em;
+}
+.exchange-layout .subscription-facts { border-top: 0; padding-top: 8px; }
+.exchange-layout .home-secondary { gap: 64px; }
+.exchange-layout .entry-notice {
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--jamie-border);
+  border-radius: 0;
+  padding: 0 0 8px;
+  margin-bottom: 24px;
+}
+.exchange-layout [data-slot='button'] { border-radius: 6px; }
+.exchange-layout .quiet-badge { border-radius: 3px; padding: 3px 7px; }
+.exchange-layout :is(.surface, .contact-box, .contact-inline, .node-panel) {
+  padding: 20px 0;
+}
+.exchange-layout .account-groups { gap: 32px; }
+.exchange-layout .account-groups > section {
+  border: 0;
+  border-top: 1px solid var(--jamie-border);
+  border-radius: 0;
+  background: transparent;
+  padding: 20px 0 0;
+}
+.exchange-layout .admin-entry { border-top: 1px solid var(--jamie-border); padding-inline: 0; }
+.exchange-layout .compact-plan-grid { gap: 32px; }
+.exchange-layout .compact-plan {
+  border-block: 1px solid var(--jamie-border);
+  padding: 24px 0;
+  max-width: 440px;
+}
+.exchange-layout .compact-plan-quota { margin: 18px 0 8px; }
+.exchange-layout .compact-plan ul { padding: 18px 0; }
+.exchange-layout .compact-plan footer { padding-top: 16px; }
+.exchange-layout .guide-stage {
+  border-left: 1px solid var(--jamie-border);
+  padding: 0 0 0 32px;
+}
+.exchange-layout .guide-step-nav > button { border-radius: 4px; }
+.exchange-layout .welcome-flow { padding: 24px 0; border-block: 1px solid var(--jamie-border); }
+.exchange-layout .auth { padding: 24px 0; }
+.exchange-layout .activation-summary { border-block: 1px solid var(--jamie-border); padding: 16px 0; }
+.exchange-layout .ticket-row { border-radius: 0; }
+.exchange-layout .ticket-row.selected { box-shadow: inset 2px 0 var(--jamie-accent); }
+.exchange-layout .region-card { border-bottom: 1px solid var(--jamie-border); }
+.exchange-layout .subscription-layout > .connection-panel { padding: 0; }
+.exchange-layout .package-detail-row { padding: 16px 0; }
+@media (max-width: 700px) {
+  .exchange-layout .home-primary { grid-template-columns: 1fr; }
+  .exchange-layout .home-connect { border-left: 0; border-bottom: 1px solid var(--jamie-border); }
+  .exchange-layout .home-connect .connection-panel,
+  .exchange-layout .home-connect .renew-sheet,
+  .exchange-layout .quota-sheet { padding: 20px 0; }
+  .exchange-layout .home-secondary { gap: 28px; }
+  .exchange-layout .guide-stage { border-left: 0; border-top: 1px solid var(--jamie-border); padding: 24px 0 0; }
+  .exchange-layout .compact-plan { max-width: none; }
+  .exchange-layout .account-groups { gap: 24px; }
+  .exchange-layout .account-groups > section:first-child { border-top: 0; padding-top: 0; }
+}
