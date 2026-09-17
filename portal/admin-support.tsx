@@ -1,0 +1,430 @@
+import { useEffect, useRef, useState } from 'react';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { api } from './api';
+import {
+  Dialog,
+  DialogContent,
+  DialogTitle,
+  DialogDescription,
+} from '@/components/ui/dialog';
+
+type Card = {
+  id: string;
+  suffix: string;
+  label: string;
+  quota: number;
+  days: number;
+  kind?: string;
+  redeemed_at: number | null;
+  redeemed_by: string | null;
+  account_id: string | null;
+  revoked_at: number | null;
+  redeem_before: number;
+};
+type Cards = { cards: Card[]; total: number; page: number; pages: number };
+type Diagnosis = {
+  username: string;
+  account: { id: string; disabled: number; must_change: number } | null;
+  events: { outcome: string; created: number }[];
+  limited_until: number | null;
+  note: string;
+};
+const date = (n: number) => new Date(n * 1000).toLocaleString('zh-CN');
+const outcomes: Record<string, string> = {
+  unknown_user: '账号不存在',
+  wrong_password: '密码不正确',
+  disabled: '账号已停用',
+  rate_limited: '触发登录频率限制',
+  success: '密码验证通过',
+};
+
+export function CardSearch({
+  onRevoke,
+}: {
+  onRevoke: (id: string) => Promise<void>;
+}) {
+  const [query, setQuery] = useState(''),
+    [scope, setScope] = useState('all'),
+    [data, setData] = useState<Cards | null>(null);
+  const [error, setError] = useState(''),
+    [busy, setBusy] = useState(false),
+    [selected, setSelected] = useState<Card | null>(null);
+  const search = useRef({ query: '', scope: 'all' }),
+    sequence = useRef(0),
+    lock = useRef(false);
+  async function load(page = 1, next = search.current) {
+    const request = ++sequence.current;
+    search.current = next;
+    setBusy(true);
+    setError('');
+    try {
+      const result = await api<Cards>('admin/card-search', { ...next, page });
+      if (request === sequence.current) setData(result);
+    } catch (e) {
+      if (request === sequence.current) setError((e as Error).message);
+    } finally {
+      if (request === sequence.current) setBusy(false);
+    }
+  }
+  useEffect(() => {
+    void load();
+    return () => {
+      sequence.current++;
+    };
+  }, []);
+  return (
+    <section className="section" id="admin-cards">
+      <h2>卡密查询与记录</h2>
+      <form
+        className="support-search"
+        onSubmit={(e) => {
+          e.preventDefault();
+          setSelected(null);
+          void load(1, { query, scope });
+        }}
+      >
+        <Input
+          aria-label="卡密、尾号或兑换用户名"
+          placeholder="完整卡密、8 位尾号或兑换用户名"
+          autoComplete="off"
+          spellCheck={false}
+          value={query}
+          maxLength={100}
+          onChange={(e) => setQuery(e.target.value)}
+        />
+        <select
+          aria-label="卡密状态"
+          value={scope}
+          onChange={(e) => setScope(e.target.value)}
+        >
+          {Object.entries({
+            all: '全部状态',
+            available: '未使用',
+            redeemed: '已兑换',
+            expired: '已过期',
+            revoked: '已作废',
+          }).map(([value, label]) => (
+            <option key={value} value={value}>
+              {label}
+            </option>
+          ))}
+        </select>
+        <Button disabled={busy}>查询</Button>
+      </form>
+      {error && (
+        <p className="message error" role="alert">
+          {error}
+        </p>
+      )}
+      {data && (
+        <>
+          <p className="small muted" aria-live="polite">
+            共 {data.total} 张 · 第 {data.page} / {data.pages} 页
+            {busy ? ' · 正在更新…' : ''}
+          </p>
+          <div className="support-results">
+            {data.cards.map((c) => (
+              <article key={c.id}>
+                <div>
+                  <strong>{c.label}</strong>
+                  <p className="small muted">
+                    尾号 {c.suffix} · {c.quota / 1024 ** 3} GiB / {c.kind === 'addon' ? '加流量，不加天数' : `${c.days} 天`}
+                  </p>
+                </div>
+                <div>
+                  {c.redeemed_at ? (
+                    <>
+                      <a
+                        href={
+                          '#/admin_users?user=' +
+                          encodeURIComponent(c.account_id || '')
+                        }
+                      >
+                        {c.redeemed_by || '账号记录缺失'} →
+                      </a>
+                      <p className="small muted">
+                        兑换于 {date(c.redeemed_at)}
+                      </p>
+                    </>
+                  ) : (
+                    <>
+                      <span>
+                        {c.revoked_at
+                          ? '已作废'
+                          : c.redeem_before * 1000 < Date.now()
+                            ? '已过期'
+                            : '未使用'}
+                      </span>
+                      <p className="small muted">
+                        兑换截止 {date(c.redeem_before)}
+                      </p>
+                    </>
+                  )}
+                </div>
+                {!c.redeemed_at && !c.revoked_at && (
+                  <Button
+                    variant="ghost"
+                    disabled={busy}
+                    onClick={() => setSelected(c)}
+                  >
+                    作废
+                  </Button>
+                )}
+              </article>
+            ))}
+          </div>
+          {!data.cards.length && (
+            <p className="empty">没有符合条件的卡密。请核对卡密或用户名。</p>
+          )}
+          <div className="actions">
+            <Button
+              variant="outline"
+              disabled={busy || data.page <= 1}
+              onClick={() => void load(data.page - 1)}
+            >
+              上一页
+            </Button>
+            <Button
+              variant="outline"
+              disabled={busy || data.page >= data.pages}
+              onClick={() => void load(data.page + 1)}
+            >
+              下一页
+            </Button>
+          </div>
+        </>
+      )}
+      <Dialog
+        open={!!selected}
+        onOpenChange={(open) => {
+          if (!open && !busy) setSelected(null);
+        }}
+      >
+        <DialogContent>
+          <DialogTitle>确认作废尾号 {selected?.suffix}？</DialogTitle>
+          <DialogDescription>
+            作废后不能兑换，已开通的订阅不受影响。
+          </DialogDescription>
+          {error && (
+            <p className="message error" role="alert">
+              {error}
+            </p>
+          )}
+          <Button
+            variant="outline"
+            disabled={busy}
+            onClick={() => setSelected(null)}
+          >
+            取消
+          </Button>
+          <Button
+            disabled={busy}
+            onClick={() => {
+              if (lock.current || !selected) return;
+              lock.current = true;
+              setBusy(true);
+              setError('');
+              void onRevoke(selected.id)
+                .then(() => {
+                  setSelected(null);
+                  return load(data?.page || 1);
+                })
+                .catch((e) => setError(e.message))
+                .finally(() => {
+                  lock.current = false;
+                  setBusy(false);
+                });
+            }}
+          >
+            确认作废
+          </Button>
+        </DialogContent>
+      </Dialog>
+    </section>
+  );
+}
+
+export function LoginDiagnosis() {
+  const [username, setUsername] = useState(''),
+    [data, setData] = useState<Diagnosis | null>(null),
+    [error, setError] = useState(''),
+    [busy, setBusy] = useState(false);
+  const sequence = useRef(0);
+  useEffect(
+    () => () => {
+      sequence.current++;
+    },
+    [],
+  );
+  return (
+    <section className="section">
+      <h2>登录问题诊断</h2>
+      <p className="small muted">
+        核对用户名与近期登录结果，不查看或保存用户密码。
+      </p>
+      <form
+        className="support-search"
+        onSubmit={(e) => {
+          e.preventDefault();
+          const request = ++sequence.current;
+          setBusy(true);
+          setError('');
+          setData(null);
+          void api<Diagnosis>('admin/login-diagnosis', { username })
+            .then((r) => {
+              if (request === sequence.current) setData(r);
+            })
+            .catch((e) => {
+              if (request === sequence.current) setError(e.message);
+            })
+            .finally(() => {
+              if (request === sequence.current) setBusy(false);
+            });
+        }}
+      >
+        <Input
+          aria-label="待诊断用户名"
+          placeholder="完整邮箱或原用户名"
+          value={username}
+          onChange={(e) => setUsername(e.target.value)}
+          maxLength={254}
+          required
+        />
+        <Button disabled={busy}>检查登录</Button>
+      </form>
+      {error && (
+        <p className="message error" role="alert">
+          {error}
+        </p>
+      )}
+      {data && (
+        <div aria-live="polite">
+          <p>
+            <strong>{data.username}</strong> ·{' '}
+            {!data.account
+              ? '账号不存在'
+              : data.account.disabled
+                ? '账号已停用'
+                : data.account.must_change
+                  ? '账号正常，需修改临时密码'
+                  : '账号正常'}
+          </p>
+          {data.account && (
+            <a
+              className="text-link"
+              href={'#/admin_users?user=' + encodeURIComponent(data.account.id)}
+            >
+              打开用户详情 →
+            </a>
+          )}
+          {data.limited_until && (
+            <p className="message error">
+              用户名限流至 {date(data.limited_until)}
+            </p>
+          )}
+          <p className="small muted">{data.note}</p>
+          {data.events.length ? (
+            data.events.map((e, i) => (
+              <div className="history-row" key={i}>
+                <span>{outcomes[e.outcome] || '其他结果'}</span>
+                <time>{date(e.created)}</time>
+              </div>
+            ))
+          ) : (
+            <p className="empty">
+              暂无可查询的登录记录，不代表用户从未尝试登录。
+            </p>
+          )}
+        </div>
+      )}
+    </section>
+  );
+}
+
+type Readiness = {
+  connectivity: {
+    checked_at: number;
+    subscription_ok: boolean;
+    nodes: { name: string; ok: boolean; latency_ms: number | null }[];
+  } | null;
+  alerts: { level: string; title: string; detail: string }[];
+  backup: { verified_at: number; restore_verified: boolean } | null;
+  external_notifications: boolean;
+  offsite_backup: boolean;
+};
+export function OperationsReadiness() {
+  const [data, setData] = useState<Readiness | null>(null),
+    [error, setError] = useState('');
+  useEffect(() => {
+    let active = true;
+    const refresh = () => {
+      if (document.hidden) return;
+      void api<Readiness>('admin/readiness')
+        .then((x) => {
+          if (active) {
+            setData(x);
+            setError('');
+          }
+        })
+        .catch((e) => {
+          if (active) setError(e.message);
+        });
+    };
+    refresh();
+    const timer = setInterval(refresh, 60000);
+    return () => {
+      active = false;
+      clearInterval(timer);
+    };
+  }, []);
+  return (
+    <section className="section">
+      <h2>服务检查与告警</h2>
+      {error && <p className="message error">{error}</p>}
+      {data && (
+        <>
+          {data.alerts.length ? (
+            data.alerts.map((a, i) => (
+              <div
+                className={'message ' + (a.level === 'error' ? 'error' : '')}
+                key={i}
+              >
+                <strong>{a.title}</strong>
+                <span>{a.detail}</span>
+              </div>
+            ))
+          ) : (
+            <p className="muted">当前没有触发预算、同步或备份告警。</p>
+          )}
+          <p className="small muted">
+            实际连接探测：
+            {data.connectivity
+              ? date(data.connectivity.checked_at)
+              : '尚未完成'}{' '}
+            · 从监控服务器经 HY2
+            节点访问测试站点，不代表所有地区用户的线路质量。
+          </p>
+          {data.connectivity?.nodes.map((n) => (
+            <p className="small" key={n.name}>
+              {n.name} · {n.ok ? '代理请求成功' : '代理请求未成功'}
+              {n.latency_ms !== null ? ` · ${n.latency_ms} ms` : ''}
+            </p>
+          ))}
+          <p className="small muted">
+            恢复演练：
+            {data.backup?.restore_verified
+              ? date(data.backup.verified_at) + ' 已通过'
+              : '待验证'}{' '}
+            · 隔离副本验证，不覆盖线上库。
+          </p>
+          <p className="small muted">
+            站外通知：
+            {data.external_notifications ? '已配置' : '待指定接收渠道'} ·
+            异机备份：{data.offsite_backup ? '已配置' : '待指定备份位置'}
+          </p>
+        </>
+      )}
+    </section>
+  );
+}

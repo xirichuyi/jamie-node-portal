@@ -1,0 +1,19 @@
+[Unit]
+Description=Jamie-Node isolated HY2 connectivity probe
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=jamie-portal
+Group=jamie-portal
+ExecStart=/usr/bin/python3 /opt/jamie-portal/current/backend/probe.py
+UMask=0077
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/jamie-portal
+MemoryMax=140M
+CPUQuota=30%
+TimeoutStartSec=110
+PrivateTmp=true
+

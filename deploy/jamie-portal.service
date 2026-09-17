@@ -1,0 +1,30 @@
+[Unit]
+Description=Jamie-Node card redemption portal
+After=network.target x-ui.service
+
+[Service]
+User=jamie-portal
+Group=jamie-portal
+WorkingDirectory=/opt/jamie-portal/current/backend
+ExecStart=/usr/bin/python3 /opt/jamie-portal/current/backend/server.py
+Restart=on-failure
+RestartSec=5
+StateDirectory=jamie-portal
+StateDirectoryMode=0700
+UMask=0077
+MemoryHigh=120M
+MemoryMax=160M
+CPUQuota=50%
+TasksMax=24
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+
+[Install]
+WantedBy=multi-user.target

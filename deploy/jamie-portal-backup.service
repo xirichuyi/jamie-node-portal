@@ -1,0 +1,15 @@
+[Unit]
+Description=Backup Jamie-Node portal SQLite
+
+[Service]
+Type=oneshot
+User=jamie-portal
+Group=jamie-portal
+WorkingDirectory=/opt/jamie-portal/current/backend
+ExecStart=/usr/bin/python3 /opt/jamie-portal/current/backend/backup.py
+UMask=0077
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/jamie-portal
+ProtectHome=true
+MemoryMax=100M
