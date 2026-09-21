@@ -4,6 +4,7 @@ Never resets traffic, changes credentials, or grants extra customer allowance.
 The 9 TB limit covers managed VPN counters, not the OCI account bill.
 """
 import json
+raise SystemExit('Retired one-time migration. Use deploy/node_manager.py instead.')
 import os
 from pathlib import Path
 import re

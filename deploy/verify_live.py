@@ -3,6 +3,7 @@
 Disables the test user's node access afterwards. Never prints credentials.
 """
 import base64
+raise SystemExit('Retired: this legacy check predates email registration and can rotate admin passwords. Use verify_clients.py and unit tests.')
 import http.cookiejar
 import json
 from pathlib import Path

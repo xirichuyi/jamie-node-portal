@@ -44,7 +44,7 @@ class App:
         )
         self.panel = panel or Panel(config)
         self.content = Content(self.ledger)
-        self.monitor = NodeMonitor(self.panel, config.get('inbounds', [1, 2, 3]))
+        self.monitor = NodeMonitor(self.panel, config.get('node_catalog'))
         self.wake = threading.Event()
         self.account_lifecycle_lock = threading.RLock()
         self.password_lock = threading.BoundedSemaphore(2)
@@ -347,6 +347,13 @@ class App:
     def sync_loop(self):
         while True:
             try:
+                if self.config.get('node_catalog'):
+                    from node_sync import enqueue_catalog
+
+                    try:
+                        enqueue_catalog(self.ledger, self.config['node_catalog'])
+                    except Exception as exc:
+                        print('Catalog sync:', type(exc).__name__, flush=True)
                 self.account_deletion.process()
                 if self.ledger.package_billing:
                     self.refresh_billing()

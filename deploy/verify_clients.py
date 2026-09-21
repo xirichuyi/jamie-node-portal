@@ -15,6 +15,10 @@ import urllib.parse
 import urllib.request
 
 os.umask(0o077)
+catalog=json.loads(subprocess.run(['ssh','-o','BatchMode=yes','-o','StrictHostKeyChecking=yes','Noether',
+    'cat /etc/jamie-node-catalog.json'],capture_output=True,text=True,check=True).stdout)
+expected={(n['server'],n['port']) for n in catalog['nodes'] if n['enabled']}
+assert expected
 identity=json.loads(subprocess.run(['ssh','-o','BatchMode=yes','-o','StrictHostKeyChecking=yes','Noether',
     'cat /var/lib/jamie-portal/probe-identity.json'],capture_output=True,text=True,check=True).stdout)
 url='https://sub.chuyi.uk/sub/'+identity['sub_id']
@@ -31,11 +35,12 @@ def fetch(agent, suffix=''):
         return r.read()
 
 yaml=fetch('ClashVergeRev/2.4').decode()
-assert yaml.count('type: hysteria2')==6 and 'rule-providers:' in yaml
-assert yaml.count('fingerprint:')==6 and 'skip-cert-verify: true' not in yaml
+assert yaml.count('type: hysteria2')==len(expected) and 'rule-providers:' in yaml
+assert yaml.count('fingerprint:')==len(expected) and 'skip-cert-verify: true' not in yaml
 assert yaml==fetch('Mozilla/5.0','?format=clash').decode()
 native=base64.b64decode(fetch('Shadowrocket/2'),validate=True).decode()
-assert len(native.splitlines())==6
+assert len(native.splitlines())==len(expected)
+assert {(urllib.parse.urlsplit(line).hostname, urllib.parse.urlsplit(line).port) for line in native.splitlines()} == expected
 assert native==base64.b64decode(fetch('Mozilla/5.0','?format=shadowrocket'),validate=True).decode()
 for line in native.splitlines():
     u=urllib.parse.urlsplit(line);assert u.scheme in ('hy2','hysteria2')

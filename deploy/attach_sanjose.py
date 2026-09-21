@@ -1,4 +1,5 @@
 """Attach the prepared San Jose node without exposing node credentials."""
+raise SystemExit('Retired one-time migration. Use deploy/node_manager.py instead.')
 import base64
 import hashlib
 import json

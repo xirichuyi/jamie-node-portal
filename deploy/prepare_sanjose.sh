@@ -1,6 +1,8 @@
 #!/bin/bash
 # New node only. Does not enable a proxy inbound or modify existing applications.
 set -euo pipefail
+echo 'Retired one-time installer. Use deploy/node_manager.py add --prepare.'
+exit 1
 umask 077
 test "$(id -u)" = 0
 test ! -e /usr/local/x-ui

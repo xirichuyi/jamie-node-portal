@@ -247,14 +247,11 @@ class Content:
 
 
 class NodeMonitor:
-    NAMES = {
-        1: '🇯🇵 日本 · 东京 01', 2: '🇸🇬 新加坡 01', 3: '🇲🇾 马来西亚 · 柔佛',
-        4: '🇺🇸 美国 · 圣何塞', 5: '🇯🇵 日本 · 东京 02', 6: '🇸🇬 新加坡 02',
-    }
-
-    def __init__(self, panel, inbound_ids=None):
+    def __init__(self, panel, catalog_path=None, names=None):
         self.panel = panel
-        self.names = {i: self.NAMES[i] for i in (inbound_ids if inbound_ids is not None else [1, 2, 3]) if i in self.NAMES}
+        self.catalog_path = catalog_path
+        self.names = names or {}
+        self.load_names()
         self.lock = threading.Lock()
         self.data = {
             'checked_at': 0,
@@ -264,9 +261,16 @@ class NodeMonitor:
             ],
         }
 
+    def load_names(self):
+        if self.catalog_path:
+            from node_catalog import active_nodes
+
+            self.names = {row['inbound_id']: row['name'] for row in active_nodes(self.catalog_path)}
+
     def refresh(self):
         now = int(time.time())
         try:
+            self.load_names()
             nodes = {n['id']: n for n in self.panel.request('nodes/list')}
             inbounds = {i['id']: i for i in self.panel.request('inbounds/list')}
             rows = []

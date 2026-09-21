@@ -1,5 +1,15 @@
 # Jamie-Node portal
 
+## Node operations (2026-09-21)
+
+Node inventory is runtime data, not a Python list. See [NODE-OPERATIONS.md](NODE-OPERATIONS.md)
+for the supported onboarding command, shared-account quota rules, retry semantics,
+and known operational boundaries. Legacy one-off installers and unsafe old smoke
+checks now exit without making changes.
+
+Backend tests (including subscription serialization):
+`uv run --with pyyaml --no-project python -m unittest discover -s backend -p 'test*.py'`.
+
 ## Expanded user center (2026-09-17)
 
 - Public plans, announcements, official client guides, FAQ and contact entry.

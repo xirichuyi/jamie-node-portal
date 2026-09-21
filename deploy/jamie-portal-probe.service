@@ -14,6 +14,5 @@ ProtectHome=true
 ReadWritePaths=/var/lib/jamie-portal
 MemoryMax=140M
 CPUQuota=30%
-TimeoutStartSec=110
+TimeoutStartSec=600
 PrivateTmp=true
-

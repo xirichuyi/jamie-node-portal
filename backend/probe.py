@@ -15,25 +15,13 @@ import tempfile
 import time
 import urllib.parse
 import urllib.request
-
-NODES = {
-    '161.33.217.26': ('日本', 8443),
-    '168.107.64.69': ('新加坡', 8443),
-    '149.118.144.221': ('马来西亚', 9443),
-    '192.9.148.252': ('美国 · 圣何塞', 8443),
-    '140.245.88.56': ('日本 · 东京 02', 8443),
-    '168.138.190.68': ('新加坡 02', 8443),
-}
+from node_catalog import active_nodes
 
 
-def outbound(uri):
+def outbound(uri, nodes):
     u = urllib.parse.urlsplit(uri)
     q = urllib.parse.parse_qs(u.query)
-    if (
-        u.scheme not in ('hy2', 'hysteria2')
-        or u.hostname not in NODES
-        or u.port != NODES[u.hostname][1]
-    ):
+    if u.scheme not in ('hy2', 'hysteria2') or (u.hostname, u.port) not in nodes:
         raise ValueError('Unexpected probe node')
     pin = q.get('pinSHA256', [''])[0].replace(':', '')
     if not re.fullmatch('[a-fA-F0-9]{64}', pin):
@@ -131,6 +119,9 @@ def run(root=Path('/var/lib/jamie-portal'), core='/usr/local/x-ui/bin/xray-linux
         'subscription_ok': False,
     }
     try:
+        nodes = {(n['server'], n['port']): n['name'] for n in active_nodes()}
+        if not nodes:
+            raise ValueError('No active probe nodes')
         identity = json.loads((root / 'probe-identity.json').read_text())
         url = 'https://sub.chuyi.uk/sub/' + identity['sub_id']
         req = urllib.request.Request(url, headers={'User-Agent': 'Shadowrocket/Probe'})
@@ -141,13 +132,20 @@ def run(root=Path('/var/lib/jamie-portal'), core='/usr/local/x-ui/bin/xray-linux
             ):
                 raise ValueError('Missing subscription metadata')
         lines = base64.b64decode(raw, validate=True).decode().splitlines()
-        configs = [outbound(line.strip()) for line in lines if line.strip()]
-        if {c['settings']['address'] for c in configs} != set(NODES) or len(configs) != len(NODES):
+        configs = [outbound(line.strip(), nodes) for line in lines if line.strip()]
+        if {(c['settings']['address'], c['settings']['port']) for c in configs} != set(
+            nodes
+        ) or len(configs) != len(nodes):
             raise ValueError('Unexpected node inventory')
         result['subscription_ok'] = True
         for config in configs:
             host = config['settings']['address']
-            item = {'name': NODES[host][0], 'server': host, 'ok': False, 'latency_ms': None}
+            item = {
+                'name': nodes[(host, config['settings']['port'])],
+                'server': host,
+                'ok': False,
+                'latency_ms': None,
+            }
             try:
                 with tempfile.TemporaryDirectory(prefix='probe-', dir=root) as temp:
                     item.update(test_outbound(config, core, temp))

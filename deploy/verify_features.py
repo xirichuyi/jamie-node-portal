@@ -3,6 +3,7 @@
 Run via SSH stdin as root. No panel clients are created or modified.
 """
 import http.client
+raise SystemExit('Retired: this smoke script predates email registration and catalog-based nodes. Use current unit tests and verify_clients.py.')
 import json
 import secrets
 import sys

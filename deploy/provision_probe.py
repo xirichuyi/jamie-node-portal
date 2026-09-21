@@ -26,11 +26,5 @@ if not any(c['email']==identity['email'] for c in rows):
 current=panel.get(identity['email'])
 if current['client']['auth']!=identity['auth'] or current['client']['subId']!=identity['sub_id']:
     raise SystemExit('Probe ownership mismatch')
-missing=set(panel.inbounds)-set(current['inboundIds'])
-if missing:
-    client=dict(current['client'])
-    client.pop('id',None)
-    if client.get('uuid'):client['id']=client.pop('uuid')
-    client.pop('allowedIPs',None)
-    panel.request('clients/add',{'client':client,'inboundIds':sorted(missing)})
+panel.attach_existing(identity['email'], panel.inbounds)
 print('Dedicated monitoring identity verified; no customer credentials changed')

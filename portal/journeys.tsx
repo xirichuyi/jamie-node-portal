@@ -267,7 +267,7 @@ export function Dashboard({
           </div>
           <details className="service-disclosure">
             <summary>
-              日本 · 新加坡 · 马来西亚 · 美国<span>查看节点</span>
+              节点状态<span>查看节点</span>
             </summary>
             <NodeStatus />
           </details>

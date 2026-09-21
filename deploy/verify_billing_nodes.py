@@ -16,14 +16,16 @@ import urllib.request
 sys.path.insert(0,'/opt/jamie-portal/current/backend')
 from panel import Panel
 from probe import outbound, test_outbound
+from node_catalog import active_nodes
 
 os.umask(0o077)
 panel = Panel(json.loads(Path('/etc/jamie-portal.json').read_text()))
 identity = json.loads(Path('/var/lib/jamie-portal/probe-identity.json').read_text())
 req = urllib.request.Request('https://sub.chuyi.uk/sub/'+identity['sub_id'],headers={'User-Agent':'Shadowrocket/Probe'})
+nodes={(n['server'],n['port']):n['name'] for n in active_nodes()}
 with urllib.request.urlopen(req,timeout=15) as response:
-    configs = [outbound(line) for line in base64.b64decode(response.read()).decode().splitlines() if line]
-assert len(configs)==3
+    configs = [outbound(line,nodes) for line in base64.b64decode(response.read()).decode().splitlines() if line]
+assert len(configs)==len(nodes) and nodes
 core='/usr/local/x-ui/bin/xray-linux-amd64'
 def check(config):
     with tempfile.TemporaryDirectory(prefix='billing-qa-') as directory:

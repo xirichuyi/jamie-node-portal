@@ -25,7 +25,7 @@ from urllib.parse import urlsplit
 path=urlsplit(env['XUI_ACCESS_URL']).path.rstrip('/')
 config={'database':'/var/lib/jamie-portal/portal.db','origin':'https://sub.chuyi.uk',
         'port':18766,'panel_url':'https://panel.chuyi.uk:48173'+path,
-        'panel_token':env['XUI_API_TOKEN'],'inbounds':[1,2,3]}
+        'panel_token':env['XUI_API_TOKEN'],'node_catalog':'/etc/jamie-node-catalog.json'}
 archive=io.BytesIO()
 with tarfile.open(fileobj=archive,mode='w:gz') as tar:
     tar.add(ROOT/'backend',arcname='backend',filter=lambda x:None if '__pycache__' in x.name else x)

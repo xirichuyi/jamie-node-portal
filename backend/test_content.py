@@ -100,7 +100,7 @@ class MonitoringTests(unittest.TestCase):
                              'lastHeartbeat': int(time.time()), 'latencyMs': 10}]
                 return [{'id': 4, 'nodeId': 40, 'enable': True, 'protocol': 'hysteria'}]
 
-        monitor = NodeMonitor(Panel(), [4])
+        monitor = NodeMonitor(Panel(), names={4: '🇺🇸 美国 · 圣何塞'})
         monitor.refresh()
         rows = monitor.snapshot()['nodes']
         self.assertEqual(len(rows), 1)
@@ -133,7 +133,7 @@ class MonitoringTests(unittest.TestCase):
                 return [{'id': i, 'enable': True, 'protocol': 'hysteria'} for i in (1, 2, 3)]
 
         panel = Panel()
-        monitor = NodeMonitor(panel)
+        monitor = NodeMonitor(panel, names={1: '日本', 2: '新加坡', 3: '马来西亚'})
         monitor.refresh()
         data = monitor.snapshot()
         self.assertEqual([n['status'] for n in data['nodes']], ['online', 'unknown', 'pending'])

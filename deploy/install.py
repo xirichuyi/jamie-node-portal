@@ -68,6 +68,24 @@ else:
         rollback.replace(current)
         run('systemctl','restart','jamie-portal.service')
     raise SystemExit('Portal health failed; nginx unchanged. See systemd journal.')
+adapter = Path('/opt/xui-clash/clash-subscription.py')
+if (source / 'deploy/subscription_adapter.py').exists() and adapter.exists():
+    shutil.copy2(adapter, backup / 'subscription_adapter.py')
+    candidate_adapter = source / 'deploy/subscription_adapter.py'
+    compile(candidate_adapter.read_text(), str(candidate_adapter), 'exec')
+    try:
+        shutil.copyfile(candidate_adapter, adapter)
+        run('systemctl', 'restart', 'xui-clash')
+        run('systemctl', 'is-active', 'xui-clash')
+    except Exception:
+        shutil.copyfile(backup / 'subscription_adapter.py', adapter)
+        if previous:
+            rollback = root / ('rollback-adapter-' + stamp)
+            rollback.symlink_to(previous)
+            rollback.replace(current)
+            run('systemctl', 'restart', 'jamie-portal')
+        run('systemctl', 'restart', 'xui-clash')
+        raise
 old = '''    location = / {
         default_type text/plain;
         return 200 "Jamie-Node: use your personal subscription URL.\\n";

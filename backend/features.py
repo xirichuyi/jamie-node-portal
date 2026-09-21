@@ -432,7 +432,7 @@ class Features:
                 budgets.append(
                     {
                         'id': row['id'],
-                        'name': self.app.monitor.NAMES.get(row['id'], '节点'),
+                        'name': self.app.monitor.names.get(row['id'], '节点'),
                         'up': row.get('up'),
                         'down': row.get('down'),
                         'total': row.get('total'),

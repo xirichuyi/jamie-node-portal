@@ -5,6 +5,7 @@ import http.client
 import socket
 import urllib.request
 import urllib.parse
+from node_catalog import active_nodes
 
 
 class LoopbackTLS(http.client.HTTPSConnection):
@@ -22,11 +23,22 @@ class Panel:
     def __init__(self, config):
         self.base = config['panel_url'].rstrip('/') + '/panel/api/'
         self.token = config['panel_token']
-        self.inbounds = config.get('inbounds', [1, 2, 3])
+        self.catalog_path = config.get('node_catalog')
+        self._inbounds = config.get('inbounds', [])
         # No proxy environment routing for local administrative calls.
         self.opener = urllib.request.build_opener(
             urllib.request.ProxyHandler({}), LoopbackHTTPSHandler()
         )
+
+    @property
+    def inbounds(self):
+        if getattr(self, 'catalog_path', None):
+            return [row['inbound_id'] for row in active_nodes(self.catalog_path)]
+        return self._inbounds
+
+    @inbounds.setter
+    def inbounds(self, value):
+        self._inbounds = value
 
     def request(self, path, payload=None):
         req = urllib.request.Request(
@@ -42,6 +54,32 @@ class Panel:
 
     def get(self, email):
         return self.request('clients/get/' + urllib.parse.quote(email, safe=''))
+
+    @staticmethod
+    def client_payload(record):
+        client = dict(record)
+        client.pop('id', None)
+        if client.get('uuid'):
+            client['id'] = client.pop('uuid')
+        client.pop('allowedIPs', None)
+        return client
+
+    def attach_existing(self, email, inbound_ids):
+        """For owned service identities only; customer writes use the billing worker."""
+        current = self.get(email)
+        missing = set(inbound_ids) - set(current['inboundIds'])
+        if not missing:
+            return
+        client = self.client_payload(current['client'])
+        protected = {k: client[k] for k in ('auth', 'subId', 'totalGB', 'expiryTime', 'enable')}
+        result = self.request('clients/add', {'client': client, 'inboundIds': sorted(missing)})
+        if result and result.get('nodePending'):
+            raise RuntimeError('Node update pending')
+        after = self.get(email)
+        if not set(inbound_ids).issubset(after['inboundIds']) or any(
+            after['client'][k] != v for k, v in protected.items()
+        ):
+            raise RuntimeError('Node binding verification failed')
 
     def remove(self, member):
         email = member['panel_email']
@@ -83,12 +121,7 @@ class Panel:
             or current['client']['auth'] not in accepted_auth
         ):
             raise RuntimeError('Panel identity does not belong to this portal member')
-        client = dict(current['client']) if current else {}
-        # ClientRecord.id is an integer DB key; Client.id is a UUID string.
-        client.pop('id', None)
-        if client.get('uuid'):
-            client['id'] = client.pop('uuid')
-        client.pop('allowedIPs', None)
+        client = self.client_payload(current['client']) if current else {}
         client.update(
             email=email,
             auth=member['panel_auth'],

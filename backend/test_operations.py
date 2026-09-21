@@ -92,17 +92,25 @@ class OperationsTests(unittest.TestCase):
 
     def test_probe_requires_expected_host_and_certificate_pin(self):
         uri = 'hysteria2://test@161.33.217.26:8443?sni=test.example&pinSHA256=' + 'a' * 64
-        result = outbound(uri)
+        nodes = {
+            ('161.33.217.26', 8443): '日本',
+            ('192.9.148.252', 8443): '美国',
+            ('140.245.88.56', 8443): '日本 02',
+            ('168.138.190.68', 8443): '新加坡 02',
+        }
+        result = outbound(uri, nodes)
         self.assertFalse(result['streamSettings']['tlsSettings']['allowInsecure'])
         for host in ('192.9.148.252', '140.245.88.56', '168.138.190.68'):
-            self.assertEqual(outbound(uri.replace('161.33.217.26', host))['settings']['address'], host)
+            self.assertEqual(
+                outbound(uri.replace('161.33.217.26', host), nodes)['settings']['address'], host
+            )
         for bad in [
             uri.replace('161.33.217.26', '127.0.0.1'),
             uri.replace('8443', '22'),
             uri.split('&pin')[0],
         ]:
             with self.assertRaises(ValueError):
-                outbound(bad)
+                outbound(bad, nodes)
 
     def test_panel_rotation_accepts_only_owned_previous_auth(self):
         panel = Panel(
