@@ -19,6 +19,16 @@ Consumers load it at runtime:
 - Dedicated connectivity probe and client acceptance script: expected endpoints
   from the catalog, not a fixed count or IP list.
 
+The catalog's `service` object holds `origin`, `panel_host`, `master_ip`, `title`,
+and `probe_url`. Subscription metadata, landing links, site/master direct-routing
+exceptions and probes read these values; do not edit Python when changing them.
+`origin` must also match the portal's private configuration and nginx/DNS setup;
+changing this catalog alone does not migrate a domain or provision a certificate.
+`title` is the subscription profile/download name. The existing `Jamie-Node`
+proxy-group key stays stable to preserve client selections and rule references.
+DNS and routing policy defaults, API paths and security checks are deliberate
+code-level policy, not per-server inventory or credentials.
+
 The adapter source is now versioned at `deploy/subscription_adapter.py` and shipped
 with backend releases, preserving the cycle-billing metadata integration.
 
@@ -43,8 +53,9 @@ This command does not silently increase an existing group limit.
 `--prepare` is for NEW root-access Debian nodes without an existing x-ui install.
 Management is source-restricted to the master, TLS certificates are pinned,
 and the node subscription endpoint is disabled. Small-node service limits are
-320 MiB memory and 50% of one CPU; adjust the resource policy deliberately for
-larger deployments. Existing software and firewall rules are not removed.
+320 MiB memory and 50% of one CPU; override using `--memory-mib` and `--cpu-percent`
+when preparing a new node. These flags do not resize existing deployed nodes.
+Existing software and firewall rules are not removed.
 The SSH HostName must resolve to the master's public IPv4, or use `--master-ip`.
 Cloud security rules must permit the management connection and chosen UDP port;
 the tool cannot change OCI cloud rules without OCI authorization.

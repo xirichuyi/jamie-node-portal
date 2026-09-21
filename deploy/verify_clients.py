@@ -18,19 +18,20 @@ os.umask(0o077)
 catalog=json.loads(subprocess.run(['ssh','-o','BatchMode=yes','-o','StrictHostKeyChecking=yes','Noether',
     'cat /etc/jamie-node-catalog.json'],capture_output=True,text=True,check=True).stdout)
 expected={(n['server'],n['port']) for n in catalog['nodes'] if n['enabled']}
+service=catalog['service']
 assert expected
 identity=json.loads(subprocess.run(['ssh','-o','BatchMode=yes','-o','StrictHostKeyChecking=yes','Noether',
     'cat /var/lib/jamie-portal/probe-identity.json'],capture_output=True,text=True,check=True).stdout)
-url='https://sub.chuyi.uk/sub/'+identity['sub_id']
+url=service['origin'].rstrip('/')+'/sub/'+identity['sub_id']
 def fetch(agent, suffix=''):
     req=urllib.request.Request(url+suffix,headers={'User-Agent':agent})
     with urllib.request.urlopen(req,timeout=25) as r:
-        assert r.headers.get('profile-title')=='Jamie-Node'
+        assert r.headers.get('profile-title')==service['title']
         assert r.headers.get('subscription-userinfo')
         usage = dict(pair.strip().split('=', 1) for pair in r.headers['subscription-userinfo'].split(';') if '=' in pair)
         assert all(int(usage[field]) >= 0 for field in ('upload', 'download', 'total', 'expire'))
-        assert r.headers.get('profile-web-page-url') == 'https://sub.chuyi.uk/'
-        assert r.headers.get('support-url') == 'https://sub.chuyi.uk/#/help'
+        assert r.headers.get('profile-web-page-url') == service['origin'].rstrip('/')+'/'
+        assert r.headers.get('support-url') == service['origin'].rstrip('/')+'/#/help'
         assert '"' not in r.headers.get('Content-Disposition','')
         return r.read()
 
@@ -49,7 +50,7 @@ print('Clash and Shadowrocket auto/explicit formats and metadata: PASS')
 for agent in ('ClashVergeRev/2.4', 'Shadowrocket/2'):
     with urllib.request.urlopen(urllib.request.Request(url, method='HEAD', headers={'User-Agent': agent}), timeout=25) as response:
         assert response.headers.get('subscription-userinfo')
-        assert response.headers.get('profile-web-page-url') == 'https://sub.chuyi.uk/'
+        assert response.headers.get('profile-web-page-url') == service['origin'].rstrip('/')+'/'
         assert response.read() == b''
 print('HEAD usage metadata and portal links: PASS')
 if '--metadata-only' in sys.argv:
@@ -86,7 +87,7 @@ with tempfile.TemporaryDirectory(prefix='jamie-client-qa-') as work:
                 data=json.dumps({'name':name}).encode(),method='PUT',headers={'Content-Type':'application/json'})
             local.open(req,timeout=3).close()
             result=subprocess.run(['curl','-q','--silent','--show-error','--proxy',f'socks5h://127.0.0.1:{socks}','--noproxy','',
-                '--max-time','15','--output','/dev/null','--write-out','%{http_code}','https://www.gstatic.com/generate_204'],
+                '--max-time','15','--output','/dev/null','--write-out','%{http_code}',service['probe_url']],
                 capture_output=True,text=True,timeout=20)
             print('Mihomo end-to-end',name,'PASS' if result.returncode==0 and result.stdout=='204' else 'FAIL')
             if result.returncode!=0 or result.stdout!='204':

@@ -3,7 +3,7 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
-from node_catalog import active_nodes, validate_catalog
+from node_catalog import active_nodes, validate_catalog, service_settings
 from panel import Panel
 from content import NodeMonitor
 from entitlements import Ledger
@@ -11,6 +11,31 @@ from node_sync import enqueue_catalog
 
 
 class CatalogTests(unittest.TestCase):
+    def test_service_settings_validate_urls_and_header_title(self):
+        data = self.catalog()
+        data['service'] = {
+            'origin': 'https://portal.example.test',
+            'panel_host': 'panel.example.test',
+            'master_ip': '8.8.4.4',
+            'probe_url': 'https://probe.example.test/204',
+            'title': 'Test-Profile',
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'catalog.json'
+            path.write_text(json.dumps(data))
+            self.assertEqual(service_settings(path), data['service'])
+            for field, value in [
+                ('title', 'Bad\r\nHeader'),
+                ('origin', 'http://example.test'),
+                ('origin', 'https://example.test/sub/path'),
+                ('master_ip', '127.0.0.1'),
+            ]:
+                broken = copy.deepcopy(data)
+                broken['service'][field] = value
+                path.write_text(json.dumps(broken))
+                with self.assertRaises(ValueError):
+                    service_settings(path)
+
     def catalog(self):
         return {
             'version': 1,

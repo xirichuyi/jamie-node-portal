@@ -12,7 +12,7 @@ test ! -e /etc/x-ui/x-ui.db
 export PATH=/usr/sbin:/usr/bin:/sbin:/bin
 install -d -m 700 /root/codex-backups/jamie-node-20260921
 nft list ruleset > /root/codex-backups/jamie-node-20260921/firewall-before.nft
-python3 - "$port" "$master_ip" <<'PY'
+python3 - "$port" "$master_ip" "${4:-320}" "${5:-50}" <<'PY'
 from pathlib import Path
 import sys
 import ipaddress
@@ -20,6 +20,8 @@ port=int(sys.argv[1])
 assert 1024 <= port <= 65535
 master_ip=str(ipaddress.IPv4Address(sys.argv[2]))
 assert ipaddress.ip_address(master_ip).is_global
+memory, cpu = int(sys.argv[3]), int(sys.argv[4])
+assert 128 <= memory <= 65536 and 10 <= cpu <= 6400
 Path('/etc/jamie-node-management.nft').write_text('''table inet jamie_node_management {
  chain input {
   type filter hook input priority -10; policy accept;
@@ -42,13 +44,13 @@ WantedBy=multi-user.target
 ''')
 drop=Path('/etc/systemd/system/x-ui.service.d')
 drop.mkdir(exist_ok=True)
-(drop/'resources.conf').write_text('''[Unit]
+(drop/'resources.conf').write_text(f'''[Unit]
 Requires=jamie-node-firewall.service
 After=jamie-node-firewall.service
 [Service]
-MemoryHigh=240M
-MemoryMax=320M
-CPUQuota=50%
+MemoryHigh={memory * 3 // 4}M
+MemoryMax={memory}M
+CPUQuota={cpu}%
 TasksMax=128
 ''')
 PY

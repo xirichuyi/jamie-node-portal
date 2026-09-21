@@ -15,7 +15,7 @@ import tempfile
 import time
 import urllib.parse
 import urllib.request
-from node_catalog import active_nodes
+from node_catalog import active_nodes, service_settings
 
 
 def outbound(uri, nodes):
@@ -43,7 +43,8 @@ def outbound(uri, nodes):
     }
 
 
-def test_outbound(config, core, directory):
+def test_outbound(config, core, directory, test_url=None):
+    test_url = test_url or service_settings()['probe_url']
     with socket.socket() as sock:
         sock.bind(('127.0.0.1', 0))
         port = sock.getsockname()[1]
@@ -91,7 +92,7 @@ def test_outbound(config, core, directory):
                 '/dev/null',
                 '--write-out',
                 '%{http_code}',
-                'https://www.gstatic.com/generate_204',
+                test_url,
             ],
             capture_output=True,
             text=True,
@@ -114,7 +115,7 @@ def run(root=Path('/var/lib/jamie-portal'), core='/usr/local/x-ui/bin/xray-linux
     os.umask(0o077)
     result = {
         'checked_at': int(time.time()),
-        'source': 'Noether',
+        'source': socket.gethostname(),
         'nodes': [],
         'subscription_ok': False,
     }
@@ -123,13 +124,14 @@ def run(root=Path('/var/lib/jamie-portal'), core='/usr/local/x-ui/bin/xray-linux
         if not nodes:
             raise ValueError('No active probe nodes')
         identity = json.loads((root / 'probe-identity.json').read_text())
-        url = 'https://sub.chuyi.uk/sub/' + identity['sub_id']
+        settings = service_settings()
+        url = settings['origin'].rstrip('/') + '/sub/' + identity['sub_id']
         req = urllib.request.Request(url, headers={'User-Agent': 'Shadowrocket/Probe'})
         with urllib.request.urlopen(req, timeout=15) as response:
             raw = response.read(1024 * 1024)
-            if response.headers.get('profile-title') != 'Jamie-Node' or not response.headers.get(
-                'subscription-userinfo'
-            ):
+            if response.headers.get('profile-title') != settings[
+                'title'
+            ] or not response.headers.get('subscription-userinfo'):
                 raise ValueError('Missing subscription metadata')
         lines = base64.b64decode(raw, validate=True).decode().splitlines()
         configs = [outbound(line.strip(), nodes) for line in lines if line.strip()]

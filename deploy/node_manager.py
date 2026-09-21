@@ -49,6 +49,8 @@ def main():
     parser.add_argument('--ip')
     parser.add_argument('--management-port', type=int)
     parser.add_argument('--port', type=int, default=8443)
+    parser.add_argument('--memory-mib', type=int, default=320)
+    parser.add_argument('--cpu-percent', type=int, default=50)
     parser.add_argument('--name', help='Public flag + region + optional number, no machine name')
     parser.add_argument('--region')
     parser.add_argument(
@@ -60,6 +62,8 @@ def main():
         '--prepare', action='store_true', help='Install on a new Debian node before registration'
     )
     args = parser.parse_args()
+    if not 128 <= args.memory_mib <= 65536 or not 10 <= args.cpu_percent <= 6400:
+        parser.error('Invalid resource limits')
     if not re.fullmatch(r'[A-Za-z0-9_.-]+', args.master):
         parser.error('Invalid master alias')
     if args.action == 'list':
@@ -145,7 +149,7 @@ def main():
         master_ip = str(ipaddress.IPv4Address(master_ip))
         ssh(
             args.host,
-            f'bash -s -- {args.ip} {args.management_port} {master_ip}',
+            f'bash -s -- {args.ip} {args.management_port} {master_ip} {args.memory_mib} {args.cpu_percent}',
             (ROOT / 'prepare_small_node.sh').read_bytes(),
         )
     # This maintenance helper is bundled here, rather than depending on another checkout.

@@ -2,6 +2,8 @@
 
 import ipaddress
 import json
+import re
+from urllib.parse import urlsplit
 from pathlib import Path
 
 CATALOG_PATH = '/etc/jamie-node-catalog.json'
@@ -54,3 +56,26 @@ def load_catalog(path=CATALOG_PATH):
 
 def active_nodes(path=CATALOG_PATH):
     return [row for row in load_catalog(path)['nodes'] if row['enabled']]
+
+
+def service_settings(path=CATALOG_PATH):
+    settings = load_catalog(path)['service']
+    for key in ('origin', 'probe_url'):
+        url = urlsplit(settings[key])
+        if (
+            url.scheme != 'https'
+            or not url.hostname
+            or url.username
+            or url.password
+            or url.fragment
+        ):
+            raise ValueError('Invalid service URL: ' + key)
+    if urlsplit(settings['origin']).path not in ('', '/') or urlsplit(settings['origin']).query:
+        raise ValueError('Origin must not contain a path or query')
+    if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._-]{0,63}', settings['title']):
+        raise ValueError('Invalid subscription title')
+    if not re.fullmatch(r'[A-Za-z0-9.-]+', settings['panel_host']):
+        raise ValueError('Invalid panel hostname')
+    if not ipaddress.IPv4Address(settings['master_ip']).is_global:
+        raise ValueError('Invalid master address')
+    return settings

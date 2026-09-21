@@ -14,7 +14,7 @@ import urllib.request
 import yaml
 import sys
 sys.path.insert(0, '/opt/jamie-portal/current/backend')
-from node_catalog import active_nodes
+from node_catalog import active_nodes, service_settings
 
 def node_names():
     return {(row['server'], row['port']): row['name'] for row in active_nodes()}
@@ -56,6 +56,9 @@ def rule_providers():
 
 def convert(body, usage=None):
     regions = node_names()
+    service = service_settings()
+    direct_rules = [f"DOMAIN,{host},DIRECT" for host in (urllib.parse.urlsplit(service['origin']).hostname, service['panel_host'], service['master_ip'])]
+    direct_rules.append(f"IP-CIDR,{service['master_ip']}/32,DIRECT,no-resolve")
     text = body.decode().strip()
     if not text.startswith(('hysteria2://', 'hy2://')):
         text = base64.b64decode(text, validate=True).decode()
@@ -104,12 +107,9 @@ def convert(body, usage=None):
         'proxies': proxies,
         'proxy-groups': [{'name': 'Jamie-Node', 'type': 'select', 'proxies': ['自动选择'] + names},
             {'name': '自动选择', 'type': 'url-test', 'proxies': names,
-             'url': 'https://www.gstatic.com/generate_204', 'interval': 300, 'tolerance': 50}] + account_groups(usage),
+             'url': service['probe_url'], 'interval': 300, 'tolerance': 50}] + account_groups(usage),
         'rule-providers': rule_providers(),
-        'rules': ['DOMAIN,sub.chuyi.uk,DIRECT', 'DOMAIN,panel.chuyi.uk,DIRECT',
-                  'DOMAIN,138.2.82.194,DIRECT',
-                  'IP-CIDR,138.2.82.194/32,DIRECT,no-resolve',
-                  'IP-CIDR,223.5.5.5/32,DIRECT,no-resolve',
+        'rules': direct_rules + ['IP-CIDR,223.5.5.5/32,DIRECT,no-resolve',
                   'IP-CIDR,119.29.29.29/32,DIRECT,no-resolve',
                   'DOMAIN,dns.alidns.com,DIRECT', 'DOMAIN,doh.pub,DIRECT',
                   'IP-CIDR,1.1.1.1/32,Jamie-Node,no-resolve',
@@ -173,13 +173,14 @@ def native_subscription(raw):
     return base64.b64encode(('\n'.join(links) + '\n').encode())
 
 def landing_page(sid, usage):
-    url = 'https://sub.chuyi.uk/sub/' + sid
+    service = service_settings()
+    url = service['origin'].rstrip('/') + '/sub/' + sid
     safe = html.escape(url, quote=True)
     status = ''.join('<p>' + html.escape(g['name']) + '</p>' for g in account_groups(usage))
-    return ('''<!doctype html><html lang="zh-CN"><meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1"><title>Jamie-Node</title>
+    return (f'''<!doctype html><html lang="zh-CN"><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"><title>{html.escape(service['title'])}</title>
 <body style="max-width:640px;margin:48px auto;padding:20px;font-family:system-ui;line-height:1.8">
-<h1>Jamie-Node</h1><p>将下面同一个链接粘贴到客户端的“添加订阅”。请勿公开分享。</p>'''
+<h1>{html.escape(service['title'])}</h1><p>将下面同一个链接粘贴到客户端的“添加订阅”。请勿公开分享。</p>'''
         + '<input readonly style="width:100%;padding:10px;box-sizing:border-box" value="' + safe + '">'
         + status + '<h2>手动选择格式</h2><ul><li><a href="' + safe + '?format=clash">Clash Verge / Mihomo YAML</a></li>'
         + '<li><a href="' + safe + '?format=shadowrocket">小火箭 / HY2 通用节点订阅</a></li></ul>'
@@ -208,6 +209,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.send_error(400, 'Unsupported client or format; use a HY2-capable client or select format manually')
             return
         try:
+            service = service_settings()
             req = urllib.request.Request(UPSTREAM + match[1], headers={'User-Agent': 'Private-HY2-Adapter/1'})
             with urllib.request.urlopen(req, timeout=15) as response:
                 raw = response.read(1024 * 1024 + 1)
@@ -230,16 +232,16 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.send_header('Content-Type', {'clash': 'application/yaml; charset=utf-8',
                 'base64': 'text/plain; charset=utf-8', 'html': 'text/html; charset=utf-8'}[fmt])
             if fmt != 'html':
-                self.send_header('Content-Disposition', 'attachment; filename=Jamie-Node')
+                self.send_header('Content-Disposition', 'attachment; filename=' + service['title'])
             self.send_header('Vary', 'User-Agent, Accept')
             self.send_header('Referrer-Policy', 'no-referrer')
             self.send_header('X-Content-Type-Options', 'nosniff')
             self.send_header('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'none'; base-uri 'none'")
-            self.send_header('profile-title', 'Jamie-Node')
+            self.send_header('profile-title', service['title'])
             self.send_header('Cache-Control', 'no-store')
             self.send_header('profile-update-interval', '6')
-            self.send_header('profile-web-page-url', 'https://sub.chuyi.uk/')
-            self.send_header('support-url', 'https://sub.chuyi.uk/#/help')
+            self.send_header('profile-web-page-url', service['origin'].rstrip('/') + '/')
+            self.send_header('support-url', service['origin'].rstrip('/') + '/#/help')
             if usage:
                 self.send_header('subscription-userinfo', usage)
             self.send_header('Content-Length', str(len(result)))

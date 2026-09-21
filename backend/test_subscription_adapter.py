@@ -14,6 +14,18 @@ spec.loader.exec_module(adapter)
 
 
 class DynamicSubscriptionTests(unittest.TestCase):
+    def setUp(self):
+        settings = {
+            'origin': 'https://portal.example.test',
+            'panel_host': 'panel.example.test',
+            'master_ip': '8.8.4.4',
+            'probe_url': 'https://probe.example.test/204',
+            'title': 'Test-Profile',
+        }
+        mock = patch.object(adapter, 'service_settings', return_value=settings)
+        mock.start()
+        self.addCleanup(mock.stop)
+
     def test_one_seven_and_twelve_nodes(self):
         for count in (1, 7, 12):
             rows = [
@@ -29,6 +41,9 @@ class DynamicSubscriptionTests(unittest.TestCase):
             self.assertEqual(len(clash['proxies']), count)
             self.assertEqual(len(native), count)
             self.assertEqual([p['name'] for p in clash['proxies']], [r['name'] for r in rows])
+            self.assertIn('DOMAIN,portal.example.test,DIRECT', clash['rules'])
+            self.assertIn('IP-CIDR,8.8.4.4/32,DIRECT,no-resolve', clash['rules'])
+            self.assertEqual(clash['proxy-groups'][1]['url'], 'https://probe.example.test/204')
 
     def test_unpublished_node_is_not_exposed(self):
         raw = ('hy2://secret@8.8.4.4:8443?pinSHA256=' + 'a' * 64).encode()
