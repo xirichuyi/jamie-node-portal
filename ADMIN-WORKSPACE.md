@@ -24,4 +24,4 @@ Additive columns `members.last_sync_attempt` and `members.last_synced_at`, defau
 
 Automated checks cover >500-user search/pagination, state classification, unknown/failing traffic, detail isolation, timestamps, role restrictions, stale actions, publication/revision/withdrawal, separate routes and public announcement rendering. Existing entitlement/authentication regressions remain in the suite. Static rendering tests are not interactive browser or physical-device QA.
 
-Post-release smoke script uses temporary **unfunded** QA accounts only, verifies user lookup, disable/restore, session revocation and password reset, and deletes its own records in `finally`. It does not modify real accounts or create proxy clients. Do not use `deploy/verify_live.py`, which is an obsolete bootstrap verifier that can reset the real administrator password.
+Account operations are verified by isolated backend tests. Live subscription checks use the dedicated monitoring identity through `deploy/verify_clients.py`. Obsolete bootstrap/account smoke scripts have been removed; do not recover them from Git for routine production checks.

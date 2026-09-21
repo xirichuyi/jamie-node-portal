@@ -94,7 +94,7 @@ and automatic OCI billing integration are not implemented by this change.
 The one-time `migrate_node_catalog.py` contains the historical six-node migration;
 it refuses to overwrite an existing catalog. Retired `attach_sanjose.py`,
 `expand_nodes.py`, `prepare_sanjose.sh`, `verify_live.py`, and `verify_features.py`
-are not supported operator entry points and exit immediately.
+have been removed; their historical implementations remain in Git only.
 
 ## Quality checks and remaining work
 
@@ -102,7 +102,8 @@ Tests cover dynamic 1/7/12-node output, unpublished endpoint filtering, duplicat
 names/endpoints, private addresses, shared quota overflow, runtime reload, and
 idempotent persistent sync scheduling. Existing account/billing tests also run.
 
-This is not a claim of zero bugs. Remaining architecture work includes splitting
-the large HTTP route module, strengthening deployment rollback around later nginx
+This is not a claim of zero bugs. HTTP transport and five domain route groups are
+now separated, with shared authorization before dispatch and regression tests.
+Remaining architecture work includes strengthening deployment rollback around later nginx
 failures, and adding operator UI for inventory lifecycle. Existing readiness
 monitoring distinguishes management heartbeat from actual data-plane probes.

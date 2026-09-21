@@ -7,12 +7,7 @@ import secrets
 import time
 from pathlib import Path
 from errors import DomainError
-
-
-def text(value, maximum, minimum=1):
-    if not isinstance(value, str) or not minimum <= len(value.strip()) <= maximum:
-        raise DomainError('内容长度不正确')
-    return value.strip()
+from validation import text
 
 
 def day(ts):

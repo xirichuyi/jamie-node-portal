@@ -38,11 +38,9 @@ Run `python3 -m unittest discover -s backend -v`, `npm run check`,
 `node --test portal/navigation.test.mjs portal/features.test.mjs`, `npm run build`.
 The SSR checks do not substitute for browser/device visual testing.
 
-`deploy/verify_features.py` runs on Noether via SSH stdin. It creates isolated,
-unfunded QA accounts, tests permissions/tickets/sessions/recovery and reads node
-budgets. It removes its QA rows in `finally`. It never creates panel clients or
-changes real users. Do NOT use the historical `verify_live.py` on established
-installations: it resets the initial administrator password.
+Permissions/tickets/sessions/recovery are covered by isolated backend tests.
+Use `deploy/verify_clients.py` for monitoring-identity subscription acceptance.
+Obsolete `verify_features.py` and unsafe bootstrap `verify_live.py` were removed.
 
 The existing starter dependency tree still has npm advisories affecting unused
 Node server/build dependencies (including vinext/RSC, undici and Vite). Production

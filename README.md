@@ -5,7 +5,7 @@
 Node inventory is runtime data, not a Python list. See [NODE-OPERATIONS.md](NODE-OPERATIONS.md)
 for the supported onboarding command, shared-account quota rules, retry semantics,
 and known operational boundaries. Legacy one-off installers and unsafe old smoke
-checks now exit without making changes.
+checks have been removed; Git history retains them for reference only.
 
 Backend tests (including subscription serialization):
 `uv run --with pyyaml --no-project python -m unittest discover -s backend -p 'test*.py'`.
@@ -28,8 +28,8 @@ Backend tests (including subscription serialization):
 - New APIs: public GET `/api/content`; authenticated GET `/api/nodes`; admin
   GET `/api/admin/content` and POST `/api/admin/plan`, `/notice`, `/support`.
 - Deployment now backs up SQLite before switching releases and rolls back the
-  code symlink if health checks fail. Do not run `verify_live.py` after handoff;
-  it belongs only to the initial-install password-rotation workflow.
+  code symlink if health checks fail. Unsafe bootstrap-era smoke scripts have
+  been removed; use the current unit suite and `deploy/verify_clients.py`.
 
 Production: https://sub.chuyi.uk/ — self-hosted on Noether, explicitly selected
 by the owner. Do not migrate it to Sites/ChatGPT authentication. The original
@@ -91,11 +91,9 @@ Admin records show most recent 500 users/cards and 100 audit entries.
 config and admin account are preserved. Inspect server config before changing
 API credentials or inbound IDs. Never reset traffic counters during renewal.
 
-`deploy/verify_live.py` is a one-time initial-install smoke test, not a safe
-routine check after handoff: it rotates the seeded admin password and creates
-one 1 GiB/1 day QA card, redeems it, verifies subscriptions, then disables its
-test account. The QA account/card and audit trail are intentionally retained
-for traceability, and are clearly labeled. Unit tests use isolated fake panels.
+`deploy/verify_clients.py` uses the dedicated monitoring identity, not real user
+passwords. Unit tests use isolated databases and fake panels. The old
+`verify_live.py` and `verify_features.py` scripts were removed as obsolete.
 
 Validated: TypeScript, production static build, 8 unit/integration tests,
 production HTTPS login/register, duplicate redemption, non-admin denial, real

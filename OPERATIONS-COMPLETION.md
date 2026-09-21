@@ -107,8 +107,8 @@ their own temporary records. Billing rollout remains enabled, no policy change.
 
 ## Commands
 
-Use `deploy/verify_features.py` for temporary unfunded production smoke tests.
-Do not use the obsolete `deploy/verify_live.py` which can reset the real admin.
+Use isolated backend regression tests for account and permission checks.
+Obsolete `verify_features.py` and unsafe `verify_live.py` were removed.
 `deploy/verify_clients.py` uses only the monitor identity, an isolated installed
 Mihomo process and private temporary files; it never changes system proxy settings.
 `deploy/provision_probe.py` refuses an existing unowned monitor identity and does
