@@ -1,5 +1,7 @@
 # Dynamic node operations
 
+See [README.md](README.md) for deployment, billing invariants and private-data handling.
+
 ## One inventory
 
 `/etc/jamie-node-catalog.json` on the master is the credential-free source of truth.
@@ -56,7 +58,8 @@ and the node subscription endpoint is disabled. Small-node service limits are
 320 MiB memory and 50% of one CPU; override using `--memory-mib` and `--cpu-percent`
 when preparing a new node. These flags do not resize existing deployed nodes.
 Existing software and firewall rules are not removed.
-The SSH HostName must resolve to the master's public IPv4, or use `--master-ip`.
+The master's SSH HostName must be a public IPv4 literal, or supply `--master-ip`.
+The master defaults to `Noether`; select another SSH alias with `--master`.
 Cloud security rules must permit the management connection and chosen UDP port;
 the tool cannot change OCI cloud rules without OCI authorization.
 

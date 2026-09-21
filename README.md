@@ -1,114 +1,125 @@
-# Jamie-Node portal
+# Jamie-Node
 
-## Node operations (2026-09-21)
+自托管订阅门户：React 静态前端、Python 标准库后端、SQLite、3x-ui。
+当前部署在 Noether，入口 https://sub.chuyi.uk/ 。
 
-Node inventory is runtime data, not a Python list. See [NODE-OPERATIONS.md](NODE-OPERATIONS.md)
-for the supported onboarding command, shared-account quota rules, retry semantics,
-and known operational boundaries. Legacy one-off installers and unsafe old smoke
-checks have been removed; Git history retains them for reference only.
+文档仅保留三份：[开发约束](AGENTS.md)、本页、[节点运维](NODE-OPERATIONS.md)。
+历史改动和阶段验收查 Git，不作为当前操作手册。
 
-Backend checks: `npm run check:python` (Ruff + cross-file duplication checks).
-Backend tests, including subscription serialization: `npm run test:python`.
-These tools run locally and are not installed in the production service. Duplication
-checks exclude tests; matching business steps still require manual semantic review.
+## 代码入口
 
-## Expanded user center (2026-09-17)
+| 位置 | 职责 |
+| --- | --- |
+| `portal/`、`components/ui/`、`app/globals.css` | 前端；Vite 输出 `dist/portal` |
+| `backend/server.py`、`application.py` | 启动、并发与应用组合 |
+| `backend/http_api.py`、`http_types.py`、`routing.py` | HTTP 边界、请求类型、统一鉴权 |
+| `backend/routes_*.py` | 认证、账号、订阅、支持、管理五组路由 |
+| `backend/entitlements.py`、`package_ledger.py`、`cycles.py` | 兑换事务、账本、周期结算、同步 outbox |
+| `backend/panel.py`、`node_catalog.py`、`node_sync.py` | 面板通信、动态节点目录、成员同步 |
+| `backend/email_auth.py`、`ticket_notifications.py`、`account_deletion.py` | 邮箱认证、工单邮件、删除 |
+| `backend/admin_users.py`、`operations.py`、`features.py` | 管理查询、运行诊断、自助功能 |
+| `deploy/subscription_adapter.py` | 订阅格式及额度元数据适配，随版本部署 |
+| `deploy/` | 部署、备份、探测、节点接入和验收工具 |
 
-- Public plans, announcements, official client guides, FAQ and contact entry.
-- Signed-in home includes quick actions, latest redeemed card name, real node
-  management heartbeats and management-link latency (NOT local-client latency
-  or proof of proxy end-to-end connectivity). Refresh cache every 30 seconds;
-  stale/failed telemetry becomes unknown, never fabricated online status.
-- Admin: plan publishing/unpublishing and editing, announcement draft/publish/
-  pin, support HTTPS/mailto link. Optimistic revision checks prevent lost edits.
-- Plan-based card issuance reads quota/duration from the database, ignores client
-  overrides, rejects unpublished plans, and snapshots old issued cards unchanged.
-- Standard 100 GiB / 30-day card is initially published. Light and extended tiers
-  are drafts pending the owner's choice. No price or contact address is invented.
-- New additive SQLite tables `portal_plans`, `portal_notices`, `portal_settings`,
-  `portal_migrations`; one-time seed does not reset admin edits on restarts.
-- New APIs: public GET `/api/content`; authenticated GET `/api/nodes`; admin
-  GET `/api/admin/content` and POST `/api/admin/plan`, `/notice`, `/support`.
-- Deployment now backs up SQLite before switching releases and rolls back the
-  code symlink if health checks fail. Unsafe bootstrap-era smoke scripts have
-  been removed; use the current unit suite and `deploy/verify_clients.py`.
+节点按运维流程登记，不修改节点数组/IP 常量。共享业务操作复用同一事务入口，不为每条路由复制实现。
 
-Production: https://sub.chuyi.uk/ — self-hosted on Noether, explicitly selected
-by the owner. Do not migrate it to Sites/ChatGPT authentication. The original
-Sites scaffold is retained as development dependencies only; its Worker,
-Cloudflare database, and authentication helpers are not used or deployed.
+## 业务约定
 
-## Runtime
+- 公开注册使用邮箱、密码、基础套餐卡密和邮件验证码；邮件未配置不能绕过邮箱注册。
+  预览不消费卡密，最终注册事务才消费验证码、卡密并创建账号。
+- 基础套餐独立计额、独立到期，不把多张卡的时间无限串联。
+  流量包必须绑定有效基础套餐（流量耗尽仍可补充），不能用于注册；到期不晚于对应套餐/当前周期。
+- 按最早到期顺序扣量，过期剩余作废。支持有限/无限有效期及不重置、月周期、指定天数周期。
+  月周期以开通时间为锚点，按上海时区计算；月底按当月末处理但不漂移锚点，错过的周期不累积额度。
+- 卡密兑换截止时间与套餐有效期不同；修改模板不追溯修改已发行卡密。
+- 门户负责周期结算，面板累计计数不清零。面板执行额度与用户业务额度不是同一数值。
+  零余额必须禁用，不能把面板的 `0`（无限额度）当作零流量下发。
+- 无新鲜采样、计数回退等异常必须保留故障并核对账本，不能清空计数“修复”。
+  计费和多节点同步是异步的，不能承诺高并发零超额或存量连接立即断开。
+- 套餐计费已启用；有真实兑换后，不得直接关闭开关或回退到旧账本实现。
+  卡密、套餐、审计及同步任务保持事务性，重试不能重复发放权益。
 
-- `portal/main.tsx`, `portal/style.css`: static React frontend, blog-inspired
-  monochrome palette, light/dark mode, compact working surface and floating dock.
-- `vite.portal.config.ts`: local-only compilation into `dist/portal`.
-- `backend/server.py`: Python 3.11 stdlib HTTP API, bound only to 127.0.0.1:18766.
-- `backend/entitlements.py`: SQLite atomic redemption, retryable absolute state.
-- `backend/panel.py`: verified TLS to 3x-ui through loopback, fixed inbound IDs 1/2/3.
-- Server data: `/var/lib/jamie-portal/portal.db`, credentials `/etc/jamie-portal.json`.
-- Service: `jamie-portal`, 160 MiB memory ceiling, 50% of one CPU, 12 HTTP workers.
-- Daily SQLite backups: `jamie-portal-backup.timer`, server state directory
-  `backups/`, no automatic pruning. Backups contain private account information.
-- Versioned deployments: `/opt/jamie-portal/releases/`, `current` symlink.
-- Nginx backup before first activation:
-  `/root/codex-backups/jamie-portal-20260916T161535Z/jamie-domains.conf`.
+## 账号与数据边界
 
-Existing `/sub/` and `/clash/` locations and panel.chuyi.uk are unchanged.
-The old clients are not imported or overwritten: portal users have separate
-`jn_` identities. Package billing is now enabled: each base card starts an
-independently expiring package; an add-on inherits the selected active package's
-expiry and never adds days. Expired unused traffic is discarded, earliest expiry
-is consumed first, and panel counters are never reset. Existing balances were
-preserved as transition packages. See PACKAGE-BILLING.md for acceptance and
-asynchronous-metering limits. Redeem-deadline and package duration are distinct.
-The existing per-inbound 9 TB settings are unchanged; they are not hard
-machine-wide bandwidth caps.
+- 邮箱找回可用；换绑需身份验证及邮箱验证码，成功后撤销旧会话/恢复凭据。
+  密码重置不能重新启用被停用账号。工单邮件需用户选择接收；服务商接受不等于送达。
+- “重置订阅链接”不撤销已下载的节点凭据；“重置连接凭据”是另一操作。
+  两者均需重新导入，不能混淆安全承诺。
+- 用户自删需密码和账号确认；管理员可确认删除普通账号，管理员账号受保护。
+  删除先撤销网站访问，再重试清理面板身份，最后删除本地关联数据；失败保留任务供排查。
+  已兑换卡不能重新使用。旧备份、已发送邮件及外部服务日志不会自动消失。
+- 密码使用加盐 PBKDF2；会话保存摘要，Cookie 使用 Secure/HttpOnly/SameSite。
+  写请求保留来源校验、JSON/自定义头、限流与服务端鉴权，SQL 参数化。
+- 数据库包含节点凭据，属于私密数据。不得记录密码、卡密明文、Cookie 或完整订阅链接。
+  访问目标日志未启用；网站会话、流量活动和代理在线状态不同，不宣称完全无日志。
+- `private-admin.json` 仅为首次交付记录，改密后不代表当前密码。验收不得重置真实用户凭据。
 
-## Security and operations
+## 开发与验证
 
-Passwords: salted PBKDF2-SHA256, 600,000 rounds. Server-held session hashes;
-Secure, HttpOnly, SameSite=Strict cookies. Origin + JSON + custom header checks
-on mutations, rate limits, server-side admin authorization, parameterized SQL.
-Card plaintext is returned only once and stored as SHA-256 digest, with 128 bits
-of entropy. Never log cookies, passwords, card plaintext or subscription URLs.
-The entire portal DB is private; it contains node credentials for provisioned
-members. The panel API credential is accessible only to root and service group.
+使用 Node >= 22.13、Python 3.11+、uv；已有依赖锁时使用 `npm ci`。
 
-Administrator username is `jamie`. `private-admin.json` is an ignored, mode-600
-handoff file containing the initial password. First sign-in requires changing
-it. After the user changes it, this local file no longer reflects their password.
-Do not run verification scripts that rotate credentials after handoff.
+```sh
+npm run dev
+npm run check:python
+npm run test:python
+npm run check
+node --test portal/navigation.test.mjs portal/features.test.mjs portal/dock.test.mjs
+npm run build
+```
 
-No automatic public password recovery; admin can reset a user's password after
-verifying their identity. Resets invalidate sessions and require password change.
-Disabling a user invalidates sessions immediately; node access is eventually
-disabled by the retry worker. Pending errors are visible in admin user records.
-Admin records show most recent 500 users/cards and 100 audit entries.
+Python 检查使用固定版本 Ruff 与 Pylint 重复代码检测，只在开发环境运行。
+单测使用隔离数据库/模拟面板；`python3 deploy/benchmark_backend.py` 使用合成数据对比查询性能。
+`/layout-review.html` 是本地界面样例，不进入生产构建，也不代表真实账号验收。
+`npm start`、Worker/D1 是遗留脚手架，不是生产启动方式。
 
-## Development and checks
+界面保留暖白/灰绿、紧凑卡片和无边框公告栏；公告不要在所有二级页面重复铺开。
+底部导航挂到 body，认证/管理页面隐藏；未采用的 VisualViewport 实验不是线上行为。
+图表不能把未采集日期伪造成零用量。保留 SVG 标识、官方客户端下载及简洁文案。
+静态/SSR 测试不能替代 Safari 真机、客户端导入和交互验收。
 
-`npm run build`, `npm run check`, `python3 -m unittest discover -s backend -v`.
-`python3 deploy/deploy.py` provisions/releases the self-hosted app. Existing
-config and admin account are preserved. Inspect server config before changing
-API credentials or inbound IDs. Never reset traffic counters during renewal.
+## 运行配置
 
-`deploy/verify_clients.py` uses the dedicated monitoring identity, not real user
-passwords. Unit tests use isolated databases and fake panels. The old
-`verify_live.py` and `verify_features.py` scripts were removed as obsolete.
+| 位置/服务 | 用途 |
+| --- | --- |
+| `/etc/jamie-portal.json` | 私密配置：数据库、站点、面板及邮件凭据 |
+| `/etc/xui-clash.json` | 私密订阅上游配置 |
+| `/etc/jamie-node-catalog.json` | 无凭据的运行时节点与服务元数据 |
+| `/var/lib/jamie-portal/portal.db` | 私密业务数据库 |
+| `/var/lib/jamie-portal/probe-identity.json` | 独立监测身份凭据，不复用客户身份 |
+| `/var/lib/jamie-portal/connectivity.json` | 最近的数据面探测结果 |
+| `/opt/jamie-portal/releases/`、`current` | 版本目录和当前代码链接 |
+| `jamie-portal`、`xui-clash`、`x-ui` | 门户、订阅适配器和面板服务 |
+| `jamie-portal-backup.timer`、`jamie-portal-probe.timer` | 本地备份校验和实际代理探测 |
 
-Validated: TypeScript, production static build, 8 unit/integration tests,
-production HTTPS login/register, duplicate redemption, non-admin denial, real
-panel sync, real usage retrieval, both subscription formats, and QA disable.
-No browser visual QA or physical iPhone Shadowrocket connection test was run.
-Optional WebMCP read-only summary uses feature detection; browser registration
-was not verified because no supported WebMCP validation context was available.
+Nginx 提供 HTTPS；门户仅监听 `127.0.0.1:18766`，适配器监听 `127.0.0.1:18765`。
+Resend 发信域名为 `notify.chuyi.uk`，密钥仅存私密配置。更换域名需同步 DNS/TLS、
+Nginx、门户配置及目录元数据，不是改一个字段即可迁移。
 
-## Rollback
+## 部署与恢复
 
-Restore the backed-up nginx config and validate it before reload to remove the
-portal entry while retaining old subscription paths. Stop `jamie-portal` only
-after the entry is removed. Keep `/var/lib/jamie-portal` intact to preserve
-accounts and redeemed codes. For future releases, point `current` back at the
-recorded previous release, restart the portal, and check `/api/health`. Schema
-changes must remain backward compatible or require a separately planned restore.
+测试及构建通过后执行 `python3 deploy/deploy.py`。当前脚本面向 Noether，依赖本机
+私密 SSH/面板环境配置；不是通用新环境安装器。上传静态产物、后端和部署工具，无需服务器 Node。
+部署保留已有配置/账号，备份并切换版本，同时安装订阅适配器。
+
+```sh
+python3 deploy/verify_clients.py
+python3 deploy/verify_clients.py --metadata-only
+ssh Noether systemctl start jamie-portal-probe.service
+```
+
+另需确认 `/api/health`、服务状态、同步错误及新静态产物。
+客户端工具使用独立监测身份和隔离 Mihomo，不改系统代理；元数据验收不等于小火箭真机验收。
+监测账号也有额度/期限，不能静默重置或冒用未确认归属的账号。
+
+回滚前核对数据库与计费兼容性，协调门户和适配器版本；检查健康状态与 Nginx 配置后再恢复入口。
+部署并非完整跨服务事务，尤其后续 Nginx 失败仍需人工核对。
+备份会在隔离库校验完整性、外键与行数，不等于整机灾难恢复；不得拿生产库做恢复测试。
+不要盲目恢复数据库覆盖新兑换、删除记录或账本。私密备份尚无自动清理策略。
+旧一次性迁移/验收脚本不属于常规部署流程。
+
+## 尚未完成
+
+异地备份、外部故障告警、节点上下线/排空管理 UI、计数异常人工对账流程、
+管理员二次认证与权益退款/冲正流程仍需完善。注册/工单邮件不等于故障告警已配置。
+代理额度不覆盖整机其他流量，也不是云厂商账单硬限制；当前节点以运行时目录为准。
+持续关注前端包体、依赖安全更新、账本/备份保留策略及高并发边界验收，不宣称系统已无漏洞。
