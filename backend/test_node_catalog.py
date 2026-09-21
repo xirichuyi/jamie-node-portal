@@ -84,14 +84,53 @@ class CatalogTests(unittest.TestCase):
             path.write_text(json.dumps(self.catalog()))
             ledger = Ledger(str(Path(directory) / 'portal.db'))
             ledger.create_member('test')
+            ledger.create_member('unfunded')
+            with ledger.connect() as db:
+                db.execute('UPDATE members SET quota=10 WHERE id=?', ('test',))
             self.assertEqual(enqueue_catalog(ledger, path), 1)
             self.assertEqual(enqueue_catalog(ledger, path), 0)
             reopened = Ledger(ledger.path)
             self.assertEqual(enqueue_catalog(reopened, path), 0)
             with ledger.connect() as db:
                 member = dict(db.execute('SELECT * FROM members WHERE id=?', ('test',)).fetchone())
-            self.assertEqual(member['quota'], 0)
+            self.assertEqual(member['quota'], 10)
             self.assertGreater(member['revision'], member['synced_revision'])
+            with ledger.connect() as db:
+                self.assertEqual(
+                    db.execute('SELECT revision FROM members WHERE id=?', ('unfunded',)).fetchone()[
+                        0
+                    ],
+                    0,
+                )
+
+    def test_zero_allowance_never_becomes_unlimited_panel_access(self):
+        panel = Panel(
+            {'panel_url': 'https://example.invalid', 'panel_token': 'test', 'inbounds': [31]}
+        )
+        saved = {}
+
+        def request(path, payload=None):
+            if path == 'clients/list':
+                return []
+            if path == 'clients/add':
+                saved.update(payload)
+                return {}
+            if path.startswith('clients/get/'):
+                return saved
+            raise AssertionError(path)
+
+        panel.request = request
+        panel.apply(
+            {
+                'panel_email': 'unfunded',
+                'panel_auth': 'test',
+                'sub_id': 'test',
+                'quota': 0,
+                'expires': 2000000000,
+                'disabled': False,
+            }
+        )
+        self.assertFalse(saved['client']['enable'])
 
 
 if __name__ == '__main__':

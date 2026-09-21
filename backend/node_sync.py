@@ -16,7 +16,9 @@ def enqueue_catalog(ledger, path):
         row = db.execute('SELECT signature FROM node_catalog_state WHERE id=1').fetchone()
         if row and row['signature'] == signature:
             return 0
-        count = db.execute('UPDATE members SET revision=revision+1 WHERE deleting=0').rowcount
+        count = db.execute(
+            'UPDATE members SET revision=revision+1 WHERE deleting=0 AND (quota>0 OR synced_revision>0)'
+        ).rowcount
         db.execute('INSERT OR REPLACE INTO node_catalog_state VALUES(1,?)', (signature,))
         ledger.audit(db, 'system', 'nodes.catalog_sync', signature)
     return count

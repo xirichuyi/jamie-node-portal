@@ -105,7 +105,10 @@ class Panel:
 
     def apply(self, member):
         email = member['panel_email']
-        enabled = not bool(member['disabled'] or member.get('billing_blocked', False))
+        # 3x-ui interprets zero quota as unlimited, never as an unfunded account.
+        enabled = member['quota'] > 0 and not bool(
+            member['disabled'] or member.get('billing_blocked', False)
+        )
         # Listing is used to distinguish absence from a failed read. Never turn
         # a network/auth failure into an attempted create.
         exists = any(c['email'] == email for c in self.request('clients/list'))
