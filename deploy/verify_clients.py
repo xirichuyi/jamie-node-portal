@@ -31,11 +31,11 @@ def fetch(agent, suffix=''):
         return r.read()
 
 yaml=fetch('ClashVergeRev/2.4').decode()
-assert yaml.count('type: hysteria2')==3 and 'rule-providers:' in yaml
-assert yaml.count('fingerprint:')==3 and 'skip-cert-verify: true' not in yaml
+assert yaml.count('type: hysteria2')==6 and 'rule-providers:' in yaml
+assert yaml.count('fingerprint:')==6 and 'skip-cert-verify: true' not in yaml
 assert yaml==fetch('Mozilla/5.0','?format=clash').decode()
 native=base64.b64decode(fetch('Shadowrocket/2'),validate=True).decode()
-assert len(native.splitlines())==3
+assert len(native.splitlines())==6
 assert native==base64.b64decode(fetch('Mozilla/5.0','?format=shadowrocket'),validate=True).decode()
 for line in native.splitlines():
     u=urllib.parse.urlsplit(line);assert u.scheme in ('hy2','hysteria2')

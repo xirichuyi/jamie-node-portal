@@ -247,16 +247,20 @@ class Content:
 
 
 class NodeMonitor:
-    NAMES = {1: '🇯🇵 日本 · 东京', 2: '🇸🇬 新加坡', 3: '🇲🇾 马来西亚 · 柔佛'}
+    NAMES = {
+        1: '🇯🇵 日本 · 东京 01', 2: '🇸🇬 新加坡 01', 3: '🇲🇾 马来西亚 · 柔佛',
+        4: '🇺🇸 美国 · 圣何塞', 5: '🇯🇵 日本 · 东京 02', 6: '🇸🇬 新加坡 02',
+    }
 
-    def __init__(self, panel):
+    def __init__(self, panel, inbound_ids=None):
         self.panel = panel
+        self.names = {i: self.NAMES[i] for i in (inbound_ids if inbound_ids is not None else [1, 2, 3]) if i in self.NAMES}
         self.lock = threading.Lock()
         self.data = {
             'checked_at': 0,
             'nodes': [
                 {'id': i, 'name': name, 'status': 'unknown', 'heartbeat': 0, 'latency_ms': None}
-                for i, name in self.NAMES.items()
+                for i, name in self.names.items()
             ],
         }
 
@@ -266,9 +270,10 @@ class NodeMonitor:
             nodes = {n['id']: n for n in self.panel.request('nodes/list')}
             inbounds = {i['id']: i for i in self.panel.request('inbounds/list')}
             rows = []
-            for node_id, name in self.NAMES.items():
+            for inbound_id, name in self.names.items():
+                inbound = inbounds.get(inbound_id, {})
+                node_id = inbound.get('nodeId', inbound_id)
                 n = nodes.get(node_id, {})
-                inbound = inbounds.get(node_id, {})
                 heartbeat = n.get('lastHeartbeat', 0)
                 fresh = 0 <= now - heartbeat <= 180
                 status = 'unknown'
@@ -283,7 +288,7 @@ class NodeMonitor:
                 latency = n.get('latencyMs')
                 rows.append(
                     {
-                        'id': node_id,
+                        'id': inbound_id,
                         'name': name,
                         'status': status,
                         'heartbeat': heartbeat,

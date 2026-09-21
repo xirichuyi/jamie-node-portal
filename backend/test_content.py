@@ -92,6 +92,22 @@ class ContentTests(unittest.TestCase):
 
 
 class MonitoringTests(unittest.TestCase):
+    def test_expansion_maps_inbound_to_remote_node(self):
+        class Panel:
+            def request(self, path):
+                if path == 'nodes/list':
+                    return [{'id': 40, 'enable': True, 'status': 'online',
+                             'lastHeartbeat': int(time.time()), 'latencyMs': 10}]
+                return [{'id': 4, 'nodeId': 40, 'enable': True, 'protocol': 'hysteria'}]
+
+        monitor = NodeMonitor(Panel(), [4])
+        monitor.refresh()
+        rows = monitor.snapshot()['nodes']
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]['status'], 'online')
+        self.assertEqual(rows[0]['name'], '🇺🇸 美国 · 圣何塞')
+        self.assertEqual(rows[0]['id'], 4)
+
     def test_sanitizes_stale_and_failure(self):
         class Panel:
             fail = False

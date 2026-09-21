@@ -22,8 +22,15 @@ rows=panel.request('clients/list')
 if not any(c['email']==identity['email'] for c in rows):
     panel.request('clients/add',{'client':{'email':identity['email'],'auth':identity['auth'],'subId':identity['sub_id'],
        'enable':True,'totalGB':1024**3,'expiryTime':(int(time.time())+365*86400)*1000,
-       'group':'Monitoring','trafficReset':'never','trafficResetDay':1,'limitIp':0,'tgId':0},'inboundIds':[1,2,3]})
+       'group':'Monitoring','trafficReset':'never','trafficResetDay':1,'limitIp':0,'tgId':0},'inboundIds':panel.inbounds})
 current=panel.get(identity['email'])
 if current['client']['auth']!=identity['auth'] or current['client']['subId']!=identity['sub_id']:
     raise SystemExit('Probe ownership mismatch')
+missing=set(panel.inbounds)-set(current['inboundIds'])
+if missing:
+    client=dict(current['client'])
+    client.pop('id',None)
+    if client.get('uuid'):client['id']=client.pop('uuid')
+    client.pop('allowedIPs',None)
+    panel.request('clients/add',{'client':client,'inboundIds':sorted(missing)})
 print('Dedicated monitoring identity verified; no customer credentials changed')

@@ -20,6 +20,9 @@ NODES = {
     '161.33.217.26': ('日本', 8443),
     '168.107.64.69': ('新加坡', 8443),
     '149.118.144.221': ('马来西亚', 9443),
+    '192.9.148.252': ('美国 · 圣何塞', 8443),
+    '140.245.88.56': ('日本 · 东京 02', 8443),
+    '168.138.190.68': ('新加坡 02', 8443),
 }
 
 
@@ -139,7 +142,7 @@ def run(root=Path('/var/lib/jamie-portal'), core='/usr/local/x-ui/bin/xray-linux
                 raise ValueError('Missing subscription metadata')
         lines = base64.b64decode(raw, validate=True).decode().splitlines()
         configs = [outbound(line.strip()) for line in lines if line.strip()]
-        if {c['settings']['address'] for c in configs} != set(NODES) or len(configs) != 3:
+        if {c['settings']['address'] for c in configs} != set(NODES) or len(configs) != len(NODES):
             raise ValueError('Unexpected node inventory')
         result['subscription_ok'] = True
         for config in configs:

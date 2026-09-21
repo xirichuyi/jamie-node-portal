@@ -94,6 +94,8 @@ class OperationsTests(unittest.TestCase):
         uri = 'hysteria2://test@161.33.217.26:8443?sni=test.example&pinSHA256=' + 'a' * 64
         result = outbound(uri)
         self.assertFalse(result['streamSettings']['tlsSettings']['allowInsecure'])
+        for host in ('192.9.148.252', '140.245.88.56', '168.138.190.68'):
+            self.assertEqual(outbound(uri.replace('161.33.217.26', host))['settings']['address'], host)
         for bad in [
             uri.replace('161.33.217.26', '127.0.0.1'),
             uri.replace('8443', '22'),

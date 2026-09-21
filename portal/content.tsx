@@ -415,7 +415,7 @@ export function PlansPage({
               <ul>
                 <li>
                   <Check size={15} />
-                  日本 · 新加坡 · 马来西亚
+                  日本 · 新加坡 · 马来西亚 · 美国
                 </li>
                 <li>
                   <Check size={15} />

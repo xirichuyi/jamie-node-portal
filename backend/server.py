@@ -44,7 +44,7 @@ class App:
         )
         self.panel = panel or Panel(config)
         self.content = Content(self.ledger)
-        self.monitor = NodeMonitor(self.panel)
+        self.monitor = NodeMonitor(self.panel, config.get('inbounds', [1, 2, 3]))
         self.wake = threading.Event()
         self.account_lifecycle_lock = threading.RLock()
         self.password_lock = threading.BoundedSemaphore(2)
@@ -341,7 +341,7 @@ class App:
                 else None,
             },
             'history': history,
-            'nodes': ['🇯🇵 日本 · 东京', '🇸🇬 新加坡', '🇲🇾 马来西亚 · 柔佛'],
+            'nodes': list(self.monitor.names.values()),
         }
 
     def sync_loop(self):
