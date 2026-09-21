@@ -6,6 +6,7 @@ from errors import DomainError
 from http_types import UNHANDLED
 from validation import text
 from passwords import hash_password
+from routes_support import ticket_request
 
 
 def dispatch(ctx):
@@ -67,14 +68,7 @@ def dispatch(ctx):
         app.limit('incident:' + account['id'], 30, 600)
         return ctx.reply(200, app.features.incident_save(account, data))
     if path == '/api/admin/tickets':
-        if write:
-            app.limit('ticket:' + account['id'], 60, 3600)
-            return ctx.reply(200, app.features.ticket_write(account, data, True))
-        tid = parse_qs(urlsplit(ctx.raw_path).query).get('id', [''])[0]
-        return ctx.reply(
-            200,
-            app.features.ticket(account, tid, True) if tid else app.features.tickets(account, True),
-        )
+        return ticket_request(ctx, staff=True)
     if not write and path == '/api/admin/content':
         return ctx.reply(200, app.content.read(admin=True))
     if write and path in ('/api/admin/plan', '/api/admin/notice', '/api/admin/support'):

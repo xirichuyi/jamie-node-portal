@@ -11,8 +11,6 @@ def dispatch(ctx):
     path = ctx.path
     ip = ctx.ip
     data = ctx.data
-    account = ctx.account
-    token = ctx.token
     write = ctx.write
     if not write and path == '/api/content':
         return ctx.reply(200, app.content.read())

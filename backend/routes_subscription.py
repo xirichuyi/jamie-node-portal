@@ -23,22 +23,19 @@ def dispatch(ctx):
         app.limit('rotate:' + account['id'], 3, 86400)
         app.features.rotate(account['id'], credentials=path.endswith('reset-credentials'))
         return ctx.reply(200, {'ok': True})
-    if write and path == '/api/redeem/preview':
-        app.limit('redeem:' + account['id'], 10, 600)
-        with app.ledger.billing_lock:
-            if app.ledger.package_billing:
-                app.refresh_billing()
-            return ctx.reply(
-                200, app.features.preview(account['id'], data.get('code'), data.get('target'))
-            )
-    if write and path == '/api/redeem':
+    if write and path in ('/api/redeem', '/api/redeem/preview'):
+        preview = path.endswith('/preview')
         app.limit('redeem:' + account['id'], 10, 600)
         code = data.get('code', '')
-        if not isinstance(code, str) or len(code) > 100:
+        if not preview and (not isinstance(code, str) or len(code) > 100):
             raise DomainError('卡密格式不正确')
         with app.ledger.billing_lock:
             if app.ledger.package_billing:
                 app.refresh_billing()
+            if preview:
+                return ctx.reply(
+                    200, app.features.preview(account['id'], data.get('code'), data.get('target'))
+                )
             result = app.ledger.redeem(account['id'], code, target=data.get('target'))
         app.wake.set()
         return ctx.reply(200, result)

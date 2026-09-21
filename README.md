@@ -7,8 +7,10 @@ for the supported onboarding command, shared-account quota rules, retry semantic
 and known operational boundaries. Legacy one-off installers and unsafe old smoke
 checks have been removed; Git history retains them for reference only.
 
-Backend tests (including subscription serialization):
-`uv run --with pyyaml --no-project python -m unittest discover -s backend -p 'test*.py'`.
+Backend checks: `npm run check:python` (Ruff + cross-file duplication checks).
+Backend tests, including subscription serialization: `npm run test:python`.
+These tools run locally and are not installed in the production service. Duplication
+checks exclude tests; matching business steps still require manual semantic review.
 
 ## Expanded user center (2026-09-17)
 

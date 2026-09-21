@@ -131,17 +131,24 @@ class Ledger:
 
     def create_member(self, member_id):
         with self.transaction() as db:
-            db.execute(
-                """INSERT INTO members(id,panel_email,panel_auth,sub_id,created)
-                       VALUES(?,?,?,?,?)""",
-                (
-                    member_id,
-                    'jn_' + secrets.token_hex(12),
-                    secrets.token_hex(24),
-                    secrets.token_hex(24),
-                    int(time.time()),
-                ),
-            )
+            self.insert_member(db, member_id)
+
+    @staticmethod
+    def insert_member(db, member_id, *, quota=0, expires=0, revision=0, now=None):
+        """Use the caller's transaction so account/card/session creation stays atomic."""
+        db.execute(
+            'INSERT INTO members(id,panel_email,panel_auth,sub_id,quota,expires,revision,created) VALUES(?,?,?,?,?,?,?,?)',
+            (
+                member_id,
+                'jn_' + secrets.token_hex(12),
+                secrets.token_hex(24),
+                secrets.token_hex(24),
+                quota,
+                expires,
+                revision,
+                int(time.time()) if now is None else now,
+            ),
+        )
 
     def issue(self, actor, label, quota_gib, days, count, valid_days, kind='base', **options):
         from cycles import rules, MAX_GIB, FOREVER

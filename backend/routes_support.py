@@ -5,6 +5,21 @@ from errors import DomainError
 from http_types import UNHANDLED
 
 
+def ticket_request(ctx, staff=False):
+    if ctx.write:
+        ctx.app.limit('ticket:' + ctx.account['id'], 60 if staff else 20, 3600)
+        result = ctx.app.features.ticket_write(ctx.account, ctx.data, staff)
+    else:
+        tid = parse_qs(urlsplit(ctx.raw_path).query).get('id', [''])[0]
+        features = ctx.app.features
+        result = (
+            features.ticket(ctx.account, tid, staff)
+            if tid
+            else features.tickets(ctx.account, staff)
+        )
+    return ctx.reply(200, result)
+
+
 def dispatch(ctx):
     app = ctx.app
     path = ctx.path
@@ -12,13 +27,7 @@ def dispatch(ctx):
     account = ctx.account
     write = ctx.write
     if path == '/api/tickets':
-        if write:
-            app.limit('ticket:' + account['id'], 20, 3600)
-            return ctx.reply(200, app.features.ticket_write(account, data))
-        tid = parse_qs(urlsplit(ctx.raw_path).query).get('id', [''])[0]
-        return ctx.reply(
-            200, app.features.ticket(account, tid) if tid else app.features.tickets(account)
-        )
+        return ticket_request(ctx)
     if path == '/api/notifications':
         if write and type(data.get('ticket_email')) is not bool:
             raise DomainError('无效提醒设置')

@@ -90,17 +90,7 @@ class App:
             with self.ledger.transaction() as db:
                 if db.execute('SELECT COUNT(*) FROM accounts').fetchone()[0] >= 10000:
                     raise HttpError(503, '暂时无法注册，请联系管理员')
-                db.execute(
-                    """INSERT INTO members(id,panel_email,panel_auth,sub_id,created)
-                    VALUES(?,?,?,?,?)""",
-                    (
-                        member_id,
-                        'jn_' + secrets.token_hex(12),
-                        secrets.token_hex(24),
-                        secrets.token_hex(24),
-                        int(time.time()),
-                    ),
-                )
+                self.ledger.insert_member(db, member_id)
                 db.execute(
                     'INSERT INTO accounts VALUES(?,?,?,?,?)',
                     (member_id, username, hashed, int(admin), int(admin)),
@@ -179,19 +169,13 @@ class App:
                     if db.execute('SELECT COUNT(*) FROM accounts').fetchone()[0] >= 10000:
                         raise HttpError(503, '暂时无法开通，请联系管理员')
                     uid = secrets.token_hex(16)
-                    db.execute(
-                        """INSERT INTO members
-                        (id,panel_email,panel_auth,sub_id,quota,expires,revision,created)
-                        VALUES(?,?,?,?,?,?,1,?)""",
-                        (
-                            uid,
-                            'jn_' + secrets.token_hex(12),
-                            secrets.token_hex(24),
-                            secrets.token_hex(24),
-                            card['quota'],
-                            now + card['days'] * 86400,
-                            now,
-                        ),
+                    self.ledger.insert_member(
+                        db,
+                        uid,
+                        quota=card['quota'],
+                        expires=now + card['days'] * 86400,
+                        revision=1,
+                        now=now,
                     )
                     db.execute('INSERT INTO accounts VALUES(?,?,?,0,0)', (uid, username, hashed))
                     if challenge:
