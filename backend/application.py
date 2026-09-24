@@ -306,7 +306,10 @@ class App:
                 'rotating': bool(member['previous_sub_id']),
                 'plan_name': base_plan['label'] if base_plan else None,
                 'url': self.config['origin'] + '/sub/' + member['sub_id']
-                if member['synced_revision'] > 0
+                if (
+                    member['synced_revision'] > 0
+                    or member['ready_revision'] == member['revision'] > 0
+                )
                 and not member['disabled']
                 and not member['previous_sub_id']
                 else None,

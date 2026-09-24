@@ -80,6 +80,12 @@ quota, expiry, subscription token, or password is regenerated. Panel-only custom
 identities are intentionally not bulk-modified by future onboarding. The dedicated
 monitor is explicitly extended after verifying ownership.
 
+First-time subscriptions become available once at least one active node is enabled,
+online, running, freshly reported and configuration-clean after the master identity
+and entitlement are verified. `ready_revision` does not advance `synced_revision`:
+remaining nodes keep retrying. Credential rotation remains blocked until full sync.
+Retries avoid rewriting unchanged master entitlements so reconciliation can finish.
+
 Acceptance:
 
 ```sh
@@ -104,6 +110,14 @@ only after checking matching panel IDs/limits; blindly restoring a database can
 overwrite newer purchases. Code rollback and live entitlement rollback are separate.
 The catalog supports publication state, but a complete node retirement/draining UI
 and automatic OCI billing integration are not implemented by this change.
+
+For a sold/retired machine: stop its master-side tunnel, back up the catalog and
+databases, disable the node through the panel API, then atomically set catalog
+`enabled=false`. Never reconnect to a sold machine or bypass changed SSH host keys.
+Keep historical bindings/counters for billing; do not delete inbounds to clear a warning.
+Customer updates target active inbound IDs only. Retired nodes are excluded from
+publication and sync completion. This cannot erase credentials on the sold machine;
+credential rotation is a separate operation requiring client subscription updates.
 
 The one-time `migrate_node_catalog.py` contains the historical six-node migration;
 it refuses to overwrite an existing catalog. Retired `attach_sanjose.py`,

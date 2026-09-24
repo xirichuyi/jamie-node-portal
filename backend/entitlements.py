@@ -12,6 +12,7 @@ import time
 import threading
 from contextlib import contextmanager
 from errors import DomainError
+from panel import PartialSync
 
 GIB = 1024**3
 
@@ -76,7 +77,7 @@ class Ledger:
             }:
                 db.execute('ALTER TABLE members ADD COLUMN previous_panel_auth TEXT')
             columns = {r['name'] for r in db.execute('PRAGMA table_info(members)')}
-            for column in ('last_sync_attempt', 'last_synced_at'):
+            for column in ('last_sync_attempt', 'last_synced_at', 'ready_revision'):
                 if column not in columns:
                     db.execute(
                         'ALTER TABLE members ADD COLUMN ' + column + ' INTEGER NOT NULL DEFAULT 0'
@@ -321,12 +322,22 @@ class Ledger:
             )
         try:
             panel.apply(desired)
-        except Exception:
+        except Exception as exc:
             with self.connect() as db:
                 db.execute(
                     'UPDATE members SET sync_error=? WHERE id=?',
                     ('节点同步暂未完成，系统会自动重试', member_id),
                 )
+                if isinstance(exc, PartialSync) and exc.usable and not member['previous_sub_id']:
+                    db.execute(
+                        'UPDATE members SET ready_revision=?,sync_error=? WHERE id=? AND revision=?',
+                        (
+                            member['revision'],
+                            '部分节点暂不可用，其余节点可正常使用',
+                            member_id,
+                            member['revision'],
+                        ),
+                    )
             return False
         with self.connect() as db:
             db.execute(

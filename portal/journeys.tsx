@@ -151,7 +151,7 @@ export function Dashboard({
                 <h2>{s.plan_name || '当前订阅'}</h2>
                 <span className="quiet-badge">
                   {s.pending
-                    ? '同步中'
+                    ? s.url ? '可用 · 部分同步中' : '同步中'
                     : inactive
                       ? '待恢复'
                       : s.usage_error || s.enabled === null || s.used === null

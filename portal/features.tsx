@@ -693,22 +693,22 @@ export function Redemption({
           <>
             <h2>兑换成功</h2>
             <p>
-              {subscription?.pending
-                ? '额度已到账，正在同步节点，无需重复兑换。'
-                : subscription?.url
-                  ? '订阅已就绪，现在可以导入客户端。'
+              {subscription?.url
+                ? '订阅已就绪，现在可以导入客户端。'
+                : subscription?.pending
+                  ? '额度已到账，正在同步节点，无需重复兑换。'
                   : '额度已到账，请到首页查看订阅状态。'}
             </p>
             <Button
               onClick={() =>
                 navigate(
-                  subscription?.url && !subscription.pending
+                  subscription?.url
                     ? 'subscription'
                     : 'home',
                 )
               }
             >
-              {subscription?.url && !subscription.pending
+              {subscription?.url
                 ? '导入并连接'
                 : '查看订阅状态'}
             </Button>

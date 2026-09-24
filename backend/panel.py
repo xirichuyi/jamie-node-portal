@@ -3,9 +3,18 @@
 import json
 import http.client
 import socket
+import time
 import urllib.request
 import urllib.parse
 from node_catalog import active_nodes
+
+
+class PartialSync(RuntimeError):
+    """Desired state is stored, but only part of the active fleet is confirmed."""
+
+    def __init__(self, usable=False):
+        super().__init__('Node synchronization pending')
+        self.usable = usable
 
 
 class LoopbackTLS(http.client.HTTPSConnection):
@@ -84,6 +93,8 @@ class Panel:
     def remove(self, member):
         email = member['panel_email']
         if not any(c['email'] == email for c in self.request('clients/list')):
+            if getattr(self, 'catalog_path', None):
+                self.confirm_nodes()
             return
         current = self.get(email)
         if current['client']['subId'] not in {
@@ -98,13 +109,16 @@ class Panel:
         result = self.request(
             'clients/del/' + urllib.parse.quote(email, safe='') + '?keepTraffic=0', {}
         )
-        if result and result.get('nodePending'):
+        if getattr(self, 'catalog_path', None):
+            self.confirm_nodes()
+        elif result and result.get('nodePending'):
             raise RuntimeError('Node deletion pending')
         if any(c['email'] == email for c in self.request('clients/list')):
             raise RuntimeError('Panel deletion verification failed')
 
     def apply(self, member):
         email = member['panel_email']
+        catalog_path = getattr(self, 'catalog_path', None)
         # 3x-ui interprets zero quota as unlimited, never as an unfunded account.
         enabled = member['quota'] > 0 and not bool(
             member['disabled'] or member.get('billing_blocked', False)
@@ -142,12 +156,17 @@ class Panel:
         missing = set(self.inbounds) - set(current['inboundIds'] if current else [])
         if missing:
             result = self.request('clients/add', {'client': client, 'inboundIds': sorted(missing)})
-            if result and result.get('nodePending'):
-                raise RuntimeError('Node update pending')
-        if exists:
-            result = self.request('clients/update/' + urllib.parse.quote(email, safe=''), client)
-            if result and result.get('nodePending'):
-                raise RuntimeError('Node update pending')
+            if result and result.get('nodePending') and not catalog_path:
+                raise PartialSync()
+        managed = ('auth', 'subId', 'totalGB', 'expiryTime', 'enable', 'trafficReset')
+        if exists and any(current['client'].get(k) != client[k] for k in managed):
+            # Retired bindings retain their accounting history, but receive no new credentials.
+            path = 'clients/update/' + urllib.parse.quote(email, safe='')
+            if catalog_path:
+                path += '?inboundIds=' + ','.join(map(str, self.inbounds))
+            result = self.request(path, client)
+            if result and result.get('nodePending') and not catalog_path:
+                raise PartialSync()
         verified = self.get(email)
         c = verified['client']
         if (
@@ -160,3 +179,22 @@ class Panel:
             or not set(self.inbounds).issubset(verified['inboundIds'])
         ):
             raise RuntimeError('Panel entitlement verification failed')
+        if catalog_path:
+            self.confirm_nodes(enabled)
+
+    def confirm_nodes(self, enabled=False):
+        nodes = {n['id']: n for n in self.request('nodes/list')}
+        expected = active_nodes(self.catalog_path)
+        confirmed = 0
+        for row in expected:
+            node = nodes.get(row['node_id'], {})
+            if (
+                node.get('enable') is True
+                and node.get('status') == 'online'
+                and node.get('xrayState') == 'running'
+                and node.get('configDirty') is False
+                and 0 <= time.time() - node.get('lastHeartbeat', 0) <= 60
+            ):
+                confirmed += 1
+        if not expected or confirmed != len(expected):
+            raise PartialSync(usable=enabled and confirmed > 0)
