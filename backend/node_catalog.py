@@ -20,9 +20,12 @@ def validate_catalog(data):
     for row in rows:
         if not isinstance(row, dict):
             raise ValueError('Invalid node')
-        for field in ('inbound_id', 'node_id', 'port', 'quota_bytes'):
+        for field in ('inbound_id', 'node_id', 'port'):
             if type(row.get(field)) is not int or row[field] <= 0:
                 raise ValueError('Invalid node ' + field)
+        quota = row.get('quota_bytes')
+        if type(quota) is not int or quota < 0:
+            raise ValueError('Invalid node quota_bytes')
         if row['port'] > 65535 or not ipaddress.ip_address(row['server']).is_global:
             raise ValueError('Expected public node endpoint')
         for field in ('name', 'region', 'quota_group'):
@@ -41,6 +44,12 @@ def validate_catalog(data):
         names.add(row['name'])
         endpoints.add(endpoint)
         group = row['quota_group']
+        if quota == 0:
+            if data.get('quota_groups', {}).get(group, -1) != 0:
+                raise ValueError('Unlimited node requires an unlimited quota group')
+            continue
+        if data.get('quota_groups', {}).get(group) == 0:
+            raise ValueError('Limited node requires a limited quota group')
         groups[group] = groups.get(group, 0) + row['quota_bytes']
     limits = data.get('quota_groups', {})
     for group, allocated in groups.items():

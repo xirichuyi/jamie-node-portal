@@ -286,7 +286,7 @@ class NodeMonitor:
                 elif n.get('status') == 'offline':
                     status = 'offline'
                 elif (
-                    fresh and n.get('status') == 'online' and inbound.get('protocol') == 'hysteria'
+                    fresh and n.get('status') == 'online' and inbound.get('protocol') in ('hysteria', 'vless')
                 ):
                     status = 'pending' if n.get('configDirty') else 'online'
                 latency = n.get('latencyMs')

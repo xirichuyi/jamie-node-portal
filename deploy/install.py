@@ -94,7 +94,8 @@ old = '''    location = / {
 new = '''    # Jamie-Node portal: subscriptions above retain their existing adapter.
     root /opt/jamie-portal/current/public;
     client_max_body_size 16k;
-    add_header Cache-Control "no-store" always;
+    set $jamie_cache_control "no-store";
+    add_header Cache-Control $jamie_cache_control always;
     add_header X-Content-Type-Options nosniff always;
     add_header Referrer-Policy no-referrer always;
     add_header X-Frame-Options DENY always;
@@ -109,14 +110,25 @@ new = '''    # Jamie-Node portal: subscriptions above retain their existing adap
         proxy_connect_timeout 3s;
         proxy_buffering off;
     }
-    location /assets/ { try_files $uri =404; }
+    location /assets/ {
+        set $jamie_cache_control "public, max-age=31536000, immutable";
+        gzip on;
+        gzip_vary on;
+        gzip_comp_level 6;
+        gzip_min_length 1024;
+        gzip_types application/javascript text/css;
+        try_files $uri =404;
+    }
     location / {
         try_files $uri /index.html;
     }'''
 if old in original:
     updated = 'limit_req_zone $binary_remote_addr zone=jamie_portal_api:1m rate=5r/s;\n' + original.replace(old,new,1)
 elif '# Jamie-Node portal:' in original:
-    updated = original
+    # Upgrade existing portals too, while preserving subscription/panel blocks.
+    start = original.index('    # Jamie-Node portal:')
+    end = original.index('\n}', start)
+    updated = original[:start] + new + original[end:]
 else:
     raise SystemExit('Unexpected nginx configuration; left unchanged')
 nginx.write_text(updated)

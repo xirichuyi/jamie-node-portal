@@ -15,6 +15,7 @@ import yaml
 import sys
 sys.path.insert(0, '/opt/jamie-portal/current/backend')
 from node_catalog import active_nodes, service_settings
+from proxy_links import decode_links, parse_link
 
 def node_names():
     return {(row['server'], row['port']): row['name'] for row in active_nodes()}
@@ -59,28 +60,26 @@ def convert(body, usage=None):
     service = service_settings()
     direct_rules = [f"DOMAIN,{host},DIRECT" for host in (urllib.parse.urlsplit(service['origin']).hostname, service['panel_host'], service['master_ip'])]
     direct_rules.append(f"IP-CIDR,{service['master_ip']}/32,DIRECT,no-resolve")
-    text = body.decode().strip()
-    if not text.startswith(('hysteria2://', 'hy2://')):
-        text = base64.b64decode(text, validate=True).decode()
     proxies = []
-    for index, line in enumerate(text.splitlines(), 1):
+    for index, line in enumerate(decode_links(body), 1):
         u = urllib.parse.urlsplit(line.strip())
-        if u.scheme not in ('hysteria2', 'hy2') or not u.hostname or not u.username:
-            raise ValueError('Unsupported or empty subscription')
-        q = urllib.parse.parse_qs(u.query)
-        pin = q.get('pinSHA256', [''])[0].replace(':', '').lower()
-        if not re.fullmatch('[0-9a-f]{64}', pin):
-            raise ValueError('Missing certificate pin; refusing insecure output')
         name = regions.get((u.hostname, u.port or 443))
         if name is None:
             continue  # Unpublished and retired nodes never leak into subscriptions.
+        parsed = parse_link(line)
+        q = parsed['query']
         if any(p['name'] == name for p in proxies):
             name += ' ' + str(index)
-        p = {'name': name,
-             'type': 'hysteria2', 'server': u.hostname, 'port': u.port or 443,
-             'password': urllib.parse.unquote(u.username + (':' + u.password if u.password else '')),
-             'sni': q.get('sni', [u.hostname])[0], 'skip-cert-verify': False,
-             'fingerprint': pin, 'udp': True}
+        p = {'name': name, 'type': parsed['type'], 'server': parsed['server'],
+             'port': parsed['port'], 'udp': True, 'skip-cert-verify': False}
+        if parsed['type'] == 'vless':
+            p.update(uuid=parsed['uuid'], tls=True, network='tcp', servername=parsed['sni'],
+                     **{'client-fingerprint': parsed['fingerprint'],
+                        'reality-opts': {'public-key': parsed['public_key'], 'short-id': parsed['short_id']}})
+            if parsed['flow']:
+                p['flow'] = parsed['flow']
+        else:
+            p.update(password=parsed['password'], sni=parsed['sni'], fingerprint=parsed['pin'])
         if 'alpn' in q:
             p['alpn'] = q['alpn'][0].split(',')
         if 'obfs' in q:
@@ -150,20 +149,14 @@ def choose_format(path, query, agent, accept):
 
 def native_subscription(raw):
     regions = node_names()
-    text = raw.decode().strip()
-    if not text.startswith(('hysteria2://', 'hy2://')):
-        text = base64.b64decode(text, validate=True).decode()
     links = []
     names = set()
-    for index, line in enumerate(text.splitlines(), 1):
+    for index, line in enumerate(decode_links(raw), 1):
         u = urllib.parse.urlsplit(line.strip())
-        q = urllib.parse.parse_qs(u.query)
-        pin = q.get('pinSHA256', [''])[0].replace(':', '')
-        if u.scheme not in ('hy2', 'hysteria2') or not u.hostname or not u.username or not re.fullmatch('[0-9a-fA-F]{64}', pin):
-            raise ValueError('Invalid pinned HY2 node')
         name = regions.get((u.hostname, u.port or 443))
         if name is None:
             continue
+        parse_link(line)
         if name in names:
             name += ' ' + str(index)
         names.add(name)
@@ -183,9 +176,9 @@ def landing_page(sid, usage):
 <h1>{html.escape(service['title'])}</h1><p>将下面同一个链接粘贴到客户端的“添加订阅”。请勿公开分享。</p>'''
         + '<input readonly style="width:100%;padding:10px;box-sizing:border-box" value="' + safe + '">'
         + status + '<h2>手动选择格式</h2><ul><li><a href="' + safe + '?format=clash">Clash Verge / Mihomo YAML</a></li>'
-        + '<li><a href="' + safe + '?format=shadowrocket">小火箭 / HY2 通用节点订阅</a></li></ul>'
+        + '<li><a href="' + safe + '?format=shadowrocket">小火箭 / 通用节点订阅</a></li></ul>'
         + '<p>Clash 格式包含分流规则。小火箭通用订阅只更新节点，分流规则使用小火箭当前配置，不会自动覆盖。</p>'
-        + '<p>需要支持 HY2 的客户端。节点使用自签证书，客户端必须识别并校验证书指纹 pinSHA256；'
+        + '<p>需要支持 HY2 和 VLESS REALITY 的客户端。HY2 节点使用自签证书，客户端必须识别并校验证书指纹 pinSHA256；'
           '不能删除指纹后只开启跳过验证。小火箭手机端证书校验尚待实测。原生 sing-box / Surge 暂未适配。</p>'
         + '<p>数据随订阅更新刷新，不是实时计量。</p></body></html>').encode()
 

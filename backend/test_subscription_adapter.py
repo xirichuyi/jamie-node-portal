@@ -4,6 +4,7 @@ from pathlib import Path
 import unittest
 from unittest.mock import patch
 import yaml
+from test_proxy_links import VLESS
 
 spec = importlib.util.spec_from_file_location(
     'subscription_adapter',
@@ -52,6 +53,26 @@ class DynamicSubscriptionTests(unittest.TestCase):
                 adapter.native_subscription(raw)
             with self.assertRaises(ValueError):
                 adapter.convert(raw)
+
+    def test_mixed_hy2_and_reality_subscriptions(self):
+        rows = [{'server': '8.8.4.4', 'port': 8443, 'name': 'UDP node'},
+                {'server': '8.8.4.4', 'port': 21227, 'name': 'TCP node'}]
+        raw = ('hy2://secret@8.8.4.4:8443?pinSHA256=' + 'a' * 64 + '\n' + VLESS).encode()
+        with patch.object(adapter, 'active_nodes', return_value=rows):
+            clash = yaml.safe_load(adapter.convert(raw))
+            native = base64.b64decode(adapter.native_subscription(raw)).decode()
+        tcp = clash['proxies'][1]
+        self.assertEqual(tcp['type'], 'vless')
+        self.assertTrue(tcp['tls'])
+        self.assertFalse(tcp['skip-cert-verify'])
+        self.assertEqual(tcp['reality-opts']['public-key'], 'a' * 43)
+        self.assertEqual(tcp['servername'], 'www.example.com')
+        self.assertIn('vless://', native)
+
+    def test_unpublished_transport_change_does_not_break_other_nodes(self):
+        raw = ('hy2://secret@8.8.4.4:8443?pinSHA256=' + 'a' * 64 + '\n' + VLESS).encode()
+        with patch.object(adapter, 'active_nodes', return_value=[{'server': '8.8.4.4', 'port': 8443, 'name': 'UDP node'}]):
+            self.assertEqual(len(yaml.safe_load(adapter.convert(raw))['proxies']), 1)
 
 
 if __name__ == '__main__':

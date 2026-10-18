@@ -45,7 +45,7 @@ def run(params):
     candidate['nodes'] = [n for n in candidate['nodes'] if n['inbound_id'] != row['inbound_id']] + [
         row
     ]
-    if params.get('group_limit'):
+    if params.get('group_limit') is not None:
         old = candidate['quota_groups'].get(row['quota_group'])
         if old is not None and old != params['group_limit']:
             raise ValueError('Existing group limit cannot be changed during node registration')
@@ -148,7 +148,7 @@ def run(params):
     row.update(inbound_id=inbound['id'], node_id=node['id'])
     validate_catalog(candidate)
     if inbound['total'] != params['quota_bytes']:
-        if inbound['up'] + inbound['down'] >= params['quota_bytes']:
+        if params['quota_bytes'] and inbound['up'] + inbound['down'] >= params['quota_bytes']:
             raise ValueError('Quota below already consumed traffic')
         update = copy.deepcopy(inbound)
         update.update(total=params['quota_bytes'], trafficReset='never')
@@ -165,7 +165,7 @@ def run(params):
         ):
             raise RuntimeError('Inbound quota update verification failed')
 
-    # Ephemeral probe: never consume customer allowance or publish a broken endpoint.
+    # Ephemeral probe: failed connectivity blocks publication unless explicitly overridden.
     email = 'onboard_' + secrets.token_hex(8)
     auth = secrets.token_hex(24)
     try:
@@ -193,7 +193,7 @@ def run(params):
             if result['ok']:
                 break
             time.sleep(2)
-        if not result['ok']:
+        if not result['ok'] and params.get('publish_unverified') is not True:
             raise RuntimeError('Node connectivity failed; not published')
     finally:
         if any(c['email'] == email for c in panel.request('clients/list')):
@@ -210,7 +210,7 @@ def run(params):
     ):
         raise RuntimeError('Probe ownership mismatch')
     panel.attach_existing(identity['email'], [inbound['id']])
-    # Atomic public commit, only after all checks pass. Consumers reload without deploy.
+    # Atomic public commit. Explicit unverified publication does not alter probe results.
     temporary = Path(CATALOG_PATH + '.tmp')
     temporary.write_text(json.dumps(candidate, ensure_ascii=False, indent=2))
     temporary.chmod(0o644)
@@ -220,6 +220,7 @@ def run(params):
         'name': row['name'],
         'inbound_id': row['inbound_id'],
         'customer_sync': 'queued by portal worker',
+        'connectivity_verified': result['ok'],
         'backup': str(backup),
     }
 
@@ -231,6 +232,9 @@ if __name__ == '__main__':
         try:
             print(json.dumps(run(json.load(sys.stdin)), ensure_ascii=False))
         except Exception as exc:
+            if isinstance(exc, RuntimeError) and str(exc) == 'Node connectivity failed; not published':
+                print('Node connectivity failed; not published', file=sys.stderr)
+                raise SystemExit(1) from None
             print(
                 'Node registration failed: '
                 + type(exc).__name__

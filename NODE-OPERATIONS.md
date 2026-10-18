@@ -36,6 +36,53 @@ with backend releases, preserving the cycle-billing metadata integration.
 
 ## Supported operator workflow
 
+### Quick onboarding
+
+Run `npm run node:add` in this checkout. The wizard asks for the public IPv4,
+SSH port, allocated TCP/UDP ports, display name and region. OpenSSH handles the
+password/key and first host-key confirmation; no password is stored by the wizard.
+The master defaults to the existing `Noether` SSH alias. For an existing node:
+
+```sh
+npm run node:add -- --ssh ck46
+npm run node:add -- --ssh ck46 --check --yes
+```
+
+For a new NAT node, parameters can also be supplied directly:
+
+```sh
+npm run node:add -- --host PUBLIC_IPV4 --ssh-port SSH_PORT \
+  --tcp-ports 21226-21227 --udp-ports 21228-21229 \
+  --name '🇯🇵 日本 · 东京 04' --region 日本
+```
+
+The wizard reads the inventory before connecting to the target (retired nodes are
+rejected), checks root access, OS/architecture, cgroup memory and occupied ports,
+and chooses unused ports only from the supplied allocation. For dedicated servers,
+default management/proxy ports are 48180/TCP and 8443/UDP; NAT allocations must be
+entered explicitly. It bootstraps dependencies on new Alpine/Debian/Ubuntu hosts,
+reuses a complete existing installation and refuses to overwrite partial installs.
+The final step checks publication, the dedicated monitor's subscription, catalog
+observation and aggregate member-sync progress; it refreshes the normal probe and
+reports the latest timestamped connectivity result separately. Pending sync is not
+reported as completed. Cloud/NAT forwarding cannot be provisioned by this tool.
+
+This quick path creates NEW nodes with no aggregate traffic cap, as requested for
+small rented nodes; existing capped nodes retain their allocation. Use the advanced
+command below for new shared-account/capped nodes. User billing always stays enabled.
+Without `--publish-unverified`, a failed new-node probe still blocks publication.
+The flag is never saved as a default. Already-published endpoints retain publication
+and are checked without recreating their inbounds or credentials.
+
+Non-secret parameters are saved under `~/.config/jamie-node/nodes/` (mode 0600).
+Rerun with the same SSH alias or host/port to reuse them. `--yes` uses supplied/saved
+values without prompts and requires established SSH trust and key/agent login.
+`--check` performs read-only remote checks and does not save a profile. A failed
+installation is preserved for diagnosis, not blindly rerun. Password-only retries
+may require entering the password again; each run multiplexes its SSH connection.
+
+### Advanced registration
+
 From this checkout:
 
 ```sh
@@ -52,12 +99,22 @@ node. The slice cannot be lower than traffic already counted. New account groups
 require an explicit `--group-limit-tb` (normally 9 under the current owner's policy).
 This command does not silently increase an existing group limit.
 
-`--prepare` is for NEW root-access Debian nodes without an existing x-ui install.
+`--prepare` is for NEW root-access Debian or Alpine nodes without an existing x-ui install.
+Alpine requires bash before invoking the helper, uses OpenRC and a dedicated nft
+table, and sets Go GC/heap targets (24 MiB per Go process, not a hard RSS limit).
+The Debian memory/CPU flags do not impose cgroup limits on Alpine. Verify actual
+RSS, cgroup pressure, OOM counters, and connectivity before publication.
 Management is source-restricted to the master, TLS certificates are pinned,
 and the node subscription endpoint is disabled. Small-node service limits are
 320 MiB memory and 50% of one CPU; override using `--memory-mib` and `--cpu-percent`
 when preparing a new node. These flags do not resize existing deployed nodes.
 Existing software and firewall rules are not removed.
+For nodes whose aggregate traffic is intentionally uncapped, use `--unlimited`
+instead of `--quota-tb`, with a separate quota group. Both catalog allocation and
+group limit are explicitly zero; limited and unlimited nodes cannot share a group.
+Only the node aggregate cap is removed. Customer package accounting, expiration,
+and disable operations remain unchanged. Never convert an existing limited group
+to unlimited to bypass its cap.
 The master's SSH HostName must be a public IPv4 literal, or supply `--master-ip`.
 The master defaults to `Noether`; select another SSH alias with `--master`.
 Cloud security rules must permit the management connection and chosen UDP port;
@@ -70,7 +127,12 @@ An exclusive master-side lock prevents concurrent registration jobs.
 Before publishing, registration verifies quota/name uniqueness and uses a short-
 lived dedicated account to make a real HY2 request. The test identity is removed.
 A failed connectivity test does not publish the endpoint. Prepared panel resources
-may remain for diagnosis/retry; it is NOT an all-or-nothing distributed transaction.
+may be explicitly published by the operator with `--publish-unverified` when
+unverified availability is accepted. This still runs the probe, reports its real
+result, and preserves monitoring and customer billing/sync. It does not certify
+the endpoint as working. The default remains to block publication on probe failure.
+Prepared panel resources may remain for diagnosis/retry; this is not an
+all-or-nothing distributed transaction.
 If preparation itself was interrupted, inspect the private installation log before
 retrying; never rerun a destructive install over an existing panel.
 
@@ -98,6 +160,77 @@ temporary credentials. Local TUN routing can affect its upstream network path;
 the master-side probe is a separate path, not proof of every user's ISP reachability.
 
 ## Limits and recovery
+
+Frankfurt onboarding (2026-10-18): Nezha UUIDs
+confirmed `euler` = `130.61.20.99`, `riemann` = `92.5.101.54`, and
+`leibniz` = `141.147.45.180`; root SSH accepts the operator's existing local key.
+OCI metadata places all three in the same compartment in `eu-frankfurt-1`.
+The shared `德国` group is 9 TB, allocated 7/1/1 TB respectively.
+Published node/inbound IDs are 10/10, 11/11 and 12/12, named
+`🇩🇪 德国 · 法兰克福 01`, `02` and `03`. Each passed the registration proxy probe.
+Management uses 48180/TCP restricted to Noether (`138.2.82.194`), with 8443/UDP
+for HY2. OCI NSG `jamie-node-frankfurt` is attached to these three VNICs; it permits
+48180/TCP only from the master and 8443/UDP from clients. Existing security-list
+rules are preserved. Future nodes in this VCN can reuse this NSG and ports.
+Do not rerun preparation over these installed panels; use `node_manager.py add`
+without `--prepare` for registration updates. Root SSH uses the existing local
+key; no private SSH key was uploaded to these nodes.
+All 35 members completed outbox synchronization with zero pending/errors; the
+dedicated master probe and isolated local Mihomo passed all three endpoints.
+Clash/Shadowrocket metadata and formats passed. Point-in-time workstation
+Cloudflare downloads were only 0.46/0.94/0.50 Mbps, each timing out at 45 seconds
+before completing 10 MB. Direct 3 MB downloads on the nodes completed at about
+237/182/147 Mbps respectively. This suggests the slow path is specific to the
+end-to-end proxy route, not evidence of a general server download limit; do not
+advertise these nodes as high-speed based on connectivity alone.
+
+The Alpine `ck46` node (`158.101.142.111`, SSH alias `ck46`) has management
+TLS on TCP 21226 and managed VLESS + REALITY on TCP 21227. Public UDP failed
+while an SSH relay into the HY2 listener worked, so the node was migrated to TCP.
+Do not rerun `--prepare` or the HY2 registration command on this machine.
+The existing-node wizard recognizes its catalog protocol and preserves TCP.
+
+Management connectivity alone does not prove this node is usable. Registration
+keeps it out of subscriptions until the probe passes unless the operator explicitly
+uses `--publish-unverified`; this override was requested for ck46.
+ck46 was originally published as `🇯🇵 日本 · 东京 03` (node/inbound 7), with aggregate
+traffic uncapped. The TCP migration preserves the inbound ID, member bindings and
+counters, and verifies a dedicated monitoring account's proxy request before
+publishing. Both the panel Host advertisement and the catalog must use TCP 21227;
+changing only the inbound leaves the old advertised port in subscriptions.
+Subscriptions and probes support mixed pinned HY2 and VLESS REALITY nodes.
+New member provisioning and credential rotation also populate/rotate the VLESS UUID.
+ck46 pins Xray 26.6.27: 26.9.9 passed Xray probes but rejected installed Mihomo
+1.19.13 even with an explicit REALITY minimum client version. The official 26.6.27
+ARM64 archive checksum was verified before replacement; both master Xray and local
+Mihomo now pass actual proxy requests. Do not auto-upgrade this core without both
+checks. The previous binary is privately backed up on ck46. Standalone HY2 is
+stopped and removed from OpenRC startup; its configuration is retained.
+
+2026-10-14: unreachable ck46 was replaced by ck20 for `🇯🇵 日本 · 东京 03`.
+Current node/inbound IDs are 8/8; public address `150.230.221.141`, SSH mapping
+`21095 -> 22`, management TLS `21096`, VLESS REALITY TCP `21097`.
+No local SSH alias is required. This Alpine ARM64 NAT container has a 128 MiB
+cgroup memory limit; host-level `free`/`df` output is not its resource allocation.
+Management is restricted to Noether and loopback. Xray remains pinned to 26.6.27.
+Master Xray and isolated local Mihomo proxy checks passed before publication.
+Node 7 is disabled and excluded from subscriptions; its bindings and historical
+traffic remain for accounting. Node 8 uses the normal entitlement outbox, retains
+customer package billing, and has no aggregate node cap (`ck20-unlimited`).
+Private pre-switch backups are in `/root/codex-backups/replace-tokyo03-355_1zh9`
+on Noether. Do not restore those databases over later customer transactions.
+
+ck28 was added on 2026-10-14 as `🇯🇵 日本 · 大阪 01` (node/inbound 9/9):
+public IP `217.142.245.51`, SSH `21135 -> 22`, management TLS `21136`,
+VLESS REALITY TCP `21137`. It is another 128 MiB Alpine ARM64 NAT container.
+The onboarding script's HY2 probe failed and correctly withheld publication;
+the existing TCP migration helper was then used against a staged catalog, with
+Xray 26.6.27 and independent Mihomo validation before publishing. UDP packet
+reachability alone did not establish HY2 usability. Keep its TCP transport when
+rerunning the wizard; the saved host/port profile supports `--check` without aliases.
+Its aggregate node quota is unlimited; customer package billing remains enabled.
+Two 20 MB proxy downloads measured 36.85–41.57 Mbps from the operator workstation;
+these are point-in-time end-to-end measurements, not a guaranteed line rate.
 
 The group budget sums managed VPN inbound allowances. Tokyo and Singapore each
 currently use 8 TB + 1 TB slices. Other group allocations are 9 TB. Counters remain

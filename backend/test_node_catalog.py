@@ -76,6 +76,21 @@ class CatalogTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 validate_catalog(data)
 
+    def test_unlimited_node_requires_separate_explicit_group(self):
+        data = self.catalog()
+        data['nodes'][0]['quota_bytes'] = 0
+        with self.assertRaises(ValueError):
+            validate_catalog(data)
+        data['quota_groups']['account'] = 0
+        self.assertEqual(validate_catalog(data), data)
+        for bad in (-1, True, None):
+            data['nodes'][0]['quota_bytes'] = bad
+            with self.assertRaises(ValueError):
+                validate_catalog(data)
+        data['nodes'][0]['quota_bytes'] = 1
+        with self.assertRaises(ValueError):
+            validate_catalog(data)
+
     def test_catalog_changes_reload_without_restart(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / 'nodes.json'

@@ -13,12 +13,14 @@ import subprocess
 import sys
 
 ROOT = Path(__file__).resolve().parent
+SSH_OPTIONS = []
 
 
 def ssh(host, command, data=None):
     result = subprocess.run(
         [
             'ssh',
+            *SSH_OPTIONS,
             '-o',
             'BatchMode=yes',
             '-o',
@@ -34,14 +36,17 @@ def ssh(host, command, data=None):
         timeout=600,
     )
     if result.returncode:
+        if b'Node connectivity failed; not published' in result.stderr:
+            raise RuntimeError('Node connectivity failed; not published')
         raise RuntimeError('SSH operation failed on ' + host + '; no credentials printed')
     return result.stdout
 
 
-def main():
+def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('action', choices=['list', 'add'])
     parser.add_argument('--master', default='Noether')
+    parser.add_argument('--ssh-config', help='Optional SSH configuration used by onboarding')
     parser.add_argument(
         '--master-ip', help='Public master address; defaults to SSH config HostName'
     )
@@ -57,11 +62,15 @@ def main():
         '--quota-group', help='OCI account identifier, NOT simply one limit per machine'
     )
     parser.add_argument('--quota-tb', type=Decimal)
+    parser.add_argument('--unlimited', action='store_true', help='No node aggregate traffic cap; user allowances remain enforced')
+    parser.add_argument('--publish-unverified', action='store_true', help='Explicitly publish even if the data-plane probe fails; monitoring stays enabled')
     parser.add_argument('--group-limit-tb', type=Decimal)
     parser.add_argument(
-        '--prepare', action='store_true', help='Install on a new Debian node before registration'
+        '--prepare', action='store_true', help='Install on a new Debian or Alpine node before registration'
     )
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
+    global SSH_OPTIONS
+    SSH_OPTIONS = ['-F', args.ssh_config] if args.ssh_config else []
     if not 128 <= args.memory_mib <= 65536 or not 10 <= args.cpu_percent <= 6400:
         parser.error('Invalid resource limits')
     if not re.fullmatch(r'[A-Za-z0-9_.-]+', args.master):
@@ -69,8 +78,9 @@ def main():
     if args.action == 'list':
         catalog = json.loads(ssh(args.master, 'cat /etc/jamie-node-catalog.json'))
         for row in catalog['nodes']:
+            quota = f'{row["quota_bytes"] / 10**12:g} TB' if row['quota_bytes'] else 'unlimited'
             print(
-                f'{row["inbound_id"]:>3}  {row["name"]}  {row["server"]}:{row["port"]}  {row["quota_bytes"] / 10**12:g} TB  {row["quota_group"]}'
+                f'{row["inbound_id"]:>3}  {row["name"]}  {row["server"]}:{row["port"]}  {quota}  {row["quota_group"]}'
             )
         return
     if not all(
@@ -81,11 +91,11 @@ def main():
             args.name,
             args.region,
             args.quota_group,
-            args.quota_tb,
+            args.quota_tb or args.unlimited,
         ]
     ):
         parser.error(
-            'add requires --ssh --ip --management-port --name --region --quota-group --quota-tb'
+            'add requires --ssh --ip --management-port --name --region --quota-group and --quota-tb or --unlimited'
         )
     if not re.fullmatch(r'[A-Za-z0-9_.-]+', args.host):
         parser.error('Invalid SSH alias')
@@ -94,7 +104,12 @@ def main():
         parser.error('Expected a public IPv4 address')
     if not 1024 <= args.port <= 65535 or not 1024 <= args.management_port <= 65535:
         parser.error('Invalid port')
-    if (
+    if args.unlimited:
+        if args.quota_tb is not None or args.group_limit_tb is not None:
+            parser.error('--unlimited cannot be combined with quota limits')
+        args.quota_tb = Decimal(0)
+        args.group_limit_tb = Decimal(0)
+    if not args.unlimited and (
         not args.quota_tb.is_finite()
         or args.quota_tb <= 0
         or (
@@ -139,7 +154,7 @@ def main():
     validate_catalog(candidate)
     if args.prepare:
         ssh_config = subprocess.run(
-            ['ssh', '-G', args.master], capture_output=True, text=True, check=True
+            ['ssh', *SSH_OPTIONS, '-G', args.master], capture_output=True, text=True, check=True
         ).stdout
         master_ip = args.master_ip or next(
             line.split(maxsplit=1)[1]
@@ -147,10 +162,12 @@ def main():
             if line.startswith('hostname ')
         )
         master_ip = str(ipaddress.IPv4Address(master_ip))
+        alpine = ssh(args.host, 'test -f /etc/alpine-release && echo alpine || echo other').strip() == b'alpine'
+        script = 'prepare_alpine_node.sh' if alpine else 'prepare_small_node.sh'
         ssh(
             args.host,
             f'bash -s -- {args.ip} {args.management_port} {master_ip} {args.memory_mib} {args.cpu_percent}',
-            (ROOT / 'prepare_small_node.sh').read_bytes(),
+            (ROOT / script).read_bytes(),
         )
     # This maintenance helper is bundled here, rather than depending on another checkout.
     ssh(args.host, 'python3 -', (ROOT / 'node_settings.py').read_bytes())
@@ -169,10 +186,13 @@ def main():
         'base': '/' + env['XUI_WEB_BASE_PATH'].strip('/') + '/',
         'pin': digest.hex(),
         'xray_pin': base64.b64encode(digest).decode(),
-        'group_limit': int(args.group_limit_tb * 10**12) if args.group_limit_tb else None,
+        'group_limit': int(args.group_limit_tb * 10**12) if args.group_limit_tb is not None else None,
+        'publish_unverified': args.publish_unverified,
     }
     command = 'python3 -c ' + shlex.quote((ROOT / 'node_register.py').read_text())
-    print(ssh(args.master, command, json.dumps(params).encode()).decode())
+    result = json.loads(ssh(args.master, command, json.dumps(params).encode()))
+    print(json.dumps(result, ensure_ascii=False))
+    return result
 
 
 if __name__ == '__main__':

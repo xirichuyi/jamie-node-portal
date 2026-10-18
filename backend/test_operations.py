@@ -149,7 +149,10 @@ class OperationsTests(unittest.TestCase):
 
         panel.request = request
         panel.apply(member)
+        issued_uuid = current['client']['id']
+        self.assertEqual(len(issued_uuid), 36)
         panel.apply(member)
+        self.assertEqual(current['client']['id'], issued_uuid)
         self.assertEqual(current['client']['auth'], 'new-auth')
         current['client']['auth'] = 'stranger'
         with self.assertRaises(RuntimeError):

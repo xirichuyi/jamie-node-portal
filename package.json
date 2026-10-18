@@ -6,10 +6,11 @@
     "node": ">=22.13.0"
   },
   "scripts": {
+    "node:add": "python3 deploy/onboard.py",
     "dev": "vite --config vite.portal.config.ts",
     "build": "vite build --config vite.portal.config.ts",
     "check": "tsc --noEmit",
-    "check:python": "uvx ruff@0.16.8 check backend && uvx --from pylint==4.0.8 pylint --disable=all --enable=duplicate-code --min-similarity-lines=6 --ignore-patterns='test_.*' --score=no backend/*.py",
+    "check:python": "uvx ruff@0.16.8 check backend deploy/onboard.py deploy/node_status.py deploy/node_manager.py && uvx --from pylint==4.0.8 pylint --disable=all --enable=duplicate-code --min-similarity-lines=6 --ignore-patterns='test_.*' --score=no backend/*.py",
     "test:python": "uv run --with pyyaml --no-project python -m unittest discover -s backend -p 'test*.py'",
     "start": "wrangler dev --config dist/server/wrangler.json",
     "lint": "oxlint",

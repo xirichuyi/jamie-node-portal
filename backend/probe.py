@@ -8,7 +8,6 @@ import base64
 import json
 import os
 from pathlib import Path
-import re
 import socket
 import subprocess
 import tempfile
@@ -16,31 +15,43 @@ import time
 import urllib.parse
 import urllib.request
 from node_catalog import active_nodes, service_settings
+from proxy_links import parse_link
 
 
 def outbound(uri, nodes):
-    u = urllib.parse.urlsplit(uri)
-    q = urllib.parse.parse_qs(u.query)
-    if u.scheme not in ('hy2', 'hysteria2') or (u.hostname, u.port) not in nodes:
+    p = parse_link(uri)
+    if (p['server'], p['port']) not in nodes:
         raise ValueError('Unexpected probe node')
-    pin = q.get('pinSHA256', [''])[0].replace(':', '')
-    if not re.fullmatch('[a-fA-F0-9]{64}', pin):
-        raise ValueError('Missing certificate pin')
+    if p['type'] == 'vless':
+        return {
+            'protocol': 'vless',
+            'settings': {'vnext': [{'address': p['server'], 'port': p['port'],
+                                   'users': [{'id': p['uuid'], 'encryption': 'none', 'flow': p['flow']}]}]},
+            'streamSettings': {'network': 'tcp', 'security': 'reality',
+                               'realitySettings': {'serverName': p['sni'], 'fingerprint': p['fingerprint'],
+                                                   'publicKey': p['public_key'], 'shortId': p['short_id']}},
+        }
     return {
         'protocol': 'hysteria',
-        'settings': {'version': 2, 'address': u.hostname, 'port': u.port},
+        'settings': {'version': 2, 'address': p['server'], 'port': p['port']},
         'streamSettings': {
             'network': 'hysteria',
             'security': 'tls',
-            'hysteriaSettings': {'version': 2, 'auth': urllib.parse.unquote(u.username or '')},
+            'hysteriaSettings': {'version': 2, 'auth': p['password']},
             'tlsSettings': {
-                'serverName': q.get('sni', [u.hostname])[0],
+                'serverName': p['sni'],
                 'alpn': ['h3'],
-                'pinnedPeerCertSha256': pin,
+                'pinnedPeerCertSha256': p['pin'],
                 'allowInsecure': False,
             },
         },
     }
+
+
+def outbound_endpoint(config):
+    settings = config['settings']
+    endpoint = settings['vnext'][0] if config['protocol'] == 'vless' else settings
+    return endpoint['address'], endpoint['port']
 
 
 def test_outbound(config, core, directory, test_url=None):
@@ -135,15 +146,15 @@ def run(root=Path('/var/lib/jamie-portal'), core='/usr/local/x-ui/bin/xray-linux
                 raise ValueError('Missing subscription metadata')
         lines = base64.b64decode(raw, validate=True).decode().splitlines()
         configs = [outbound(line.strip(), nodes) for line in lines if line.strip()]
-        if {(c['settings']['address'], c['settings']['port']) for c in configs} != set(
+        if {outbound_endpoint(c) for c in configs} != set(
             nodes
         ) or len(configs) != len(nodes):
             raise ValueError('Unexpected node inventory')
         result['subscription_ok'] = True
         for config in configs:
-            host = config['settings']['address']
+            host, port = outbound_endpoint(config)
             item = {
-                'name': nodes[(host, config['settings']['port'])],
+                'name': nodes[(host, port)],
                 'server': host,
                 'ok': False,
                 'latency_ms': None,

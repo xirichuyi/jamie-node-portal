@@ -36,16 +36,21 @@ def fetch(agent, suffix=''):
         return r.read()
 
 yaml=fetch('ClashVergeRev/2.4').decode()
-assert yaml.count('type: hysteria2')==len(expected) and 'rule-providers:' in yaml
-assert yaml.count('fingerprint:')==len(expected) and 'skip-cert-verify: true' not in yaml
+assert yaml.count('type: hysteria2')+yaml.count('type: vless')==len(expected) and 'rule-providers:' in yaml
+assert len(re.findall(r'^  fingerprint:',yaml,re.M))==yaml.count('type: hysteria2')
+assert yaml.count('reality-opts:')==yaml.count('type: vless') and 'skip-cert-verify: true' not in yaml
 assert yaml==fetch('Mozilla/5.0','?format=clash').decode()
 native=base64.b64decode(fetch('Shadowrocket/2'),validate=True).decode()
 assert len(native.splitlines())==len(expected)
 assert {(urllib.parse.urlsplit(line).hostname, urllib.parse.urlsplit(line).port) for line in native.splitlines()} == expected
 assert native==base64.b64decode(fetch('Mozilla/5.0','?format=shadowrocket'),validate=True).decode()
 for line in native.splitlines():
-    u=urllib.parse.urlsplit(line);assert u.scheme in ('hy2','hysteria2')
-    assert 'pinSHA256' in urllib.parse.parse_qs(u.query)
+    u=urllib.parse.urlsplit(line);assert u.scheme in ('hy2','hysteria2','vless')
+    q=urllib.parse.parse_qs(u.query)
+    if u.scheme=='vless':
+        assert q.get('security')==['reality'] and q.get('pbk') and q.get('sid')
+    else:
+        assert 'pinSHA256' in q
 print('Clash and Shadowrocket auto/explicit formats and metadata: PASS')
 for agent in ('ClashVergeRev/2.4', 'Shadowrocket/2'):
     with urllib.request.urlopen(urllib.request.Request(url, method='HEAD', headers={'User-Agent': agent}), timeout=25) as response:
@@ -82,7 +87,7 @@ with tempfile.TemporaryDirectory(prefix='jamie-client-qa-') as work:
         else:raise RuntimeError('Rule provider loading incomplete before requests')
         failures=[]
         for name,p in proxies.items():
-            if p['type']!='Hysteria2':continue
+            if p['type'].lower() not in ('hysteria2','vless'):continue
             req=urllib.request.Request(f'http://127.0.0.1:{controller}/proxies/'+urllib.parse.quote('Jamie-Node'),
                 data=json.dumps({'name':name}).encode(),method='PUT',headers={'Content-Type':'application/json'})
             local.open(req,timeout=3).close()

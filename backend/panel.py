@@ -5,6 +5,7 @@ import http.client
 import socket
 import time
 import urllib.request
+import uuid
 import urllib.parse
 from node_catalog import active_nodes
 
@@ -139,6 +140,11 @@ class Panel:
         ):
             raise RuntimeError('Panel identity does not belong to this portal member')
         client = self.client_payload(current['client']) if current else {}
+        rotated_uuid = None
+        if not current or current['client']['auth'] != member['panel_auth']:
+            # VLESS uses UUID rather than HY2 auth. Rotate both on the same retryable revision.
+            rotated_uuid = str(uuid.uuid5(uuid.NAMESPACE_URL, 'jamie-node:' + member['panel_auth']))
+            client['id'] = rotated_uuid
         client.update(
             email=email,
             auth=member['panel_auth'],
@@ -177,6 +183,7 @@ class Panel:
             or c['expiryTime']
             != (0 if member['expires'] >= 253402185600 else member['expires'] * 1000)
             or not set(self.inbounds).issubset(verified['inboundIds'])
+            or (rotated_uuid is not None and c.get('uuid', c.get('id')) != rotated_uuid)
         ):
             raise RuntimeError('Panel entitlement verification failed')
         if catalog_path:
