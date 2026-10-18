@@ -67,6 +67,16 @@ class Operations:
         if scope not in scopes or type(data.get('page', 1)) is not int:
             raise DomainError('筛选条件不正确')
         where, args = [scopes[scope]], [now] if scope in ('available', 'expired') else []
+        batch = data.get('batch')
+        if batch is not None:
+            if (
+                not isinstance(batch, dict)
+                or not isinstance(batch.get('label'), str)
+                or type(batch.get('created')) is not int
+            ):
+                raise DomainError('批次参数不正确')
+            where.append('c.label=? AND c.created=?')
+            args.extend([batch['label'], batch['created']])
         if query.strip():
             if re.fullmatch('[A-F0-9]{32}', normalized):
                 where.append('c.digest=?')
@@ -75,10 +85,15 @@ class Operations:
                 where.append('(c.suffix=? OR a.username=?)')
                 args.extend([normalized, query.strip().lower()])
             else:
-                where.append('a.username=?')
-                args.append(query.strip().lower())
+                # Partial username/email, or the admin's own recipient memo.
+                where.append("(a.username LIKE ? ESCAPE '\\' OR c.note LIKE ? ESCAPE '\\')")
+                memo = query.strip().replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_')
+                args.extend(['%' + memo.lower() + '%', '%' + memo + '%'])
         clause = ' AND '.join(where)
-        join = ' FROM cards c LEFT JOIN accounts a ON a.id=c.redeemed_by WHERE ' + clause
+        join = (
+            ' FROM cards c LEFT JOIN accounts a ON a.id=c.redeemed_by'
+            ' LEFT JOIN accounts i ON i.id=c.created_by WHERE ' + clause
+        )
         with self.ledger.connect() as db:
             total = db.execute('SELECT COUNT(*)' + join, args).fetchone()[0]
             pages = max(1, (total + 24) // 25)
@@ -87,7 +102,9 @@ class Operations:
                 dict(r)
                 for r in db.execute(
                     """SELECT c.id,c.suffix,c.label,c.quota,c.days,c.kind,c.permanent,c.reset_period,c.reset_interval,
-                c.redeem_before,c.created,c.redeemed_at,c.revoked_at,
+                c.redeem_before,c.created,c.redeemed_at,c.revoked_at,c.note,
+                c.granted,
+                COALESCE(i.username,'') AS issued_by,
                 a.username AS redeemed_by,a.id AS account_id"""
                     + join
                     + ' ORDER BY c.created DESC,c.id LIMIT 25 OFFSET ?',

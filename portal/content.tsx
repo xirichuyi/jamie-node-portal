@@ -491,7 +491,7 @@ export function HelpPage({
     ],
     [
       '续费会清空流量吗？',
-      packageBilling ? '每份套餐独立生效，优先扣除最早到期或重置的额度。按开通日每月恢复固定额度，剩余不结转；加流量包随当前周期到期，不改变重置日。短月份取月末，后续月份仍按原开通日计算。' : '不会清零已用流量。新卡额度叠加到总额度，有效期从原到期时间与当前时间中较晚的一者继续延长。本服务为总流量包，不按月自动重置。',
+      packageBilling ? '提前续费的套餐接在现有套餐到期后计时，流量兑换后立即可用，优先扣除最早到期或重置的额度。按开通日每月恢复固定额度，剩余不结转；加流量包随当前周期到期，不改变重置日。短月份取月末，后续月份仍按原开通日计算。' : '不会清零已用流量。新卡额度叠加到总额度，有效期从原到期时间与当前时间中较晚的一者继续延长。本服务为总流量包，不按月自动重置。',
     ],
     [
       '节点显示的延迟和我测的不一样？',
@@ -540,7 +540,7 @@ export function HelpPage({
       <section className="section">
         <h2>服务说明</h2>
         <div className="faq-list">
-          <details><summary>流量与有效期</summary><p>额度按节点记录的上传与下载合计扣除，页面使用 GiB / MiB（1 GiB = 1024 MiB）。用量记录约每 5 分钟更新，不是实时读数；缺失记录不补算。{packageBilling ? '每份套餐独立到期，先扣最早到期的额度；同到期时间按发放顺序扣除。加流量包不增加有效期。' : '套餐额度与有效期以兑换确认页为准。'}历史用量包含过去已到期套餐的使用，不等于当前套餐已用流量。</p></details>
+          <details><summary>流量与有效期</summary><p>额度按节点记录的上传与下载合计扣除，页面使用 GiB / MiB（1 GiB = 1024 MiB）。用量记录约每 5 分钟更新，不是实时读数；缺失记录不补算。{packageBilling ? '提前续费时，新套餐接在现有套餐到期后计时，流量兑换后立即可用；先扣最早到期的额度，同到期时间按发放顺序扣除。加流量包不增加有效期。' : '套餐额度与有效期以兑换确认页为准。'}历史用量包含过去已到期套餐的使用，不等于当前套餐已用流量。</p></details>
           <details><summary>支持范围</summary><p>我们协助处理卡密兑换、账号、订阅导入及本站节点连接问题。不保证特定网站或第三方平台始终可用；节点状态也不代表你的本地网络一定畅通。遇到问题可提交工单。</p></details>
           <details><summary>账号与数据</summary><p>服务保存账号邮箱、密码哈希、套餐与兑换记录、流量统计、工单内容，以及网站登录会话的 IP、浏览器信息和活动时间，用于登录安全、计费与问题处理。验证与提醒邮件由 Resend 发送，需要向其提供收件邮箱。网站与邮件服务商可能另行处理技术日志。请勿在工单中提交密码、验证码或完整订阅链接。</p></details>
           <details><summary>邮件与订阅安全</summary><p>工单邮件提醒默认关闭，可在工单页开启或关闭。订阅链接相当于连接凭据，请勿公开分享；仅重置链接不会使已导入的节点密码失效，确认泄露时应更换连接凭据。</p></details>
@@ -616,10 +616,6 @@ export function ContentAdmin({ onSaved }: { onSaved: () => Promise<void> }) {
   }
   return (
     <section className="section cms">
-      <h2>内容管理</h2>
-      <p className="small muted">
-        套餐、公告与客服入口都可以在这里更新，无需重新部署。
-      </p>
       {error && (
         <p className="message error" role="alert">
           {error}
@@ -921,90 +917,6 @@ export function ContentAdmin({ onSaved }: { onSaved: () => Promise<void> }) {
           )}
         </TabsContent>
       </Tabs>
-    </section>
-  );
-}
-export function PlanIssuer({
-  plans,
-  onIssued,
-  disabled,
-}: {
-  plans: Plan[];
-  onIssued: (codes: string[]) => Promise<void>;
-  disabled: boolean;
-}) {
-  const [selected, setSelected] = useState<string>(''),
-    [busy, setBusy] = useState(false),
-    [error, setError] = useState('');
-  const p = plans.find((p) => p.id === selected);
-  return (
-    <section className="plan-issuer">
-      <h2>按套餐发卡</h2>
-      <p className="small muted">
-        使用已保存的套餐规则，不会修改现有卡密。
-      </p>
-      <form
-        onSubmit={(e) => {
-          e.preventDefault();
-          const f = new FormData(e.currentTarget);
-          setBusy(true);
-          setError('');
-          void api<{ codes: { code: string }[] }>('admin/cards', {
-            plan_id: selected,
-            count: Number(f.get('count')),
-            valid_days: Number(f.get('valid_days')),
-          })
-            .then((r) => onIssued(r.codes.map((c) => c.code)))
-            .catch((e) => setError(e.message))
-            .finally(() => setBusy(false));
-        }}
-      >
-        <div className="form-grid">
-          <div className="field">
-            <span id="issue-plan">选择已上架套餐</span>
-            <Select
-              value={selected}
-              onValueChange={(v) => setSelected(String(v))}
-            >
-              <SelectTrigger aria-labelledby="issue-plan">
-                <SelectValue>{p ? p.name : '请选择套餐'}</SelectValue>
-              </SelectTrigger>
-              <SelectContent>
-                {plans.map((p) => (
-                  <SelectItem key={p.id} value={p.id}>
-                    {p.name} · {p.quota_gib} GiB · {ruleLabel(p)}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <Field label="生成数量">
-            <Input
-              name="count"
-              required
-              type="number"
-              min={1}
-              max={100}
-              defaultValue={1}
-            />
-          </Field>
-          <Field label="卡密兑换期限（天，0 为不限）">
-            <Input
-              name="valid_days"
-              required
-              type="number"
-              min={0}
-              max={365000}
-              defaultValue={90}
-            />
-          </Field>
-        </div>
-        {error && <p className="message error">{error}</p>}
-        <Button type="submit" disabled={disabled || busy || !p}>
-          按套餐生成卡密
-          <Ticket />
-        </Button>
-      </form>
     </section>
   );
 }

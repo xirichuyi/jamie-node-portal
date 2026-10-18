@@ -1,6 +1,27 @@
-@import 'tailwindcss';
+@import 'tailwindcss' source(none);
 @import 'tw-animate-css';
 @import 'shadcn/tailwind.css';
+
+/* Only scan files the static portal ships; unused shadcn components add no CSS. */
+@source '../portal';
+@source '../components/ui/alert-dialog.tsx';
+@source '../components/ui/button.tsx';
+@source '../components/ui/checkbox.tsx';
+@source '../components/ui/dialog.tsx';
+@source '../components/ui/dropdown-menu.tsx';
+@source '../components/ui/input.tsx';
+@source '../components/ui/input-group.tsx';
+@source '../components/ui/label.tsx';
+@source '../components/ui/progress.tsx';
+@source '../components/ui/select.tsx';
+@source '../components/ui/separator.tsx';
+@source '../components/ui/sheet.tsx';
+@source '../components/ui/skeleton.tsx';
+@source '../components/ui/table.tsx';
+@source '../components/ui/tabs.tsx';
+@source '../components/ui/textarea.tsx';
+@source '../components/ui/toggle.tsx';
+@source '../components/ui/tooltip.tsx';
 
 @custom-variant dark (&:is(.dark *));
 

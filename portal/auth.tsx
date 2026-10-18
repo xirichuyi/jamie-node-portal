@@ -5,7 +5,7 @@ import { Input } from '@/components/ui/input';
 import { Contact } from './content';
 import { api, ApiError } from './api';
 import { EmailCode } from './email-code';
-import { PasteCard, useCardCode, clearPendingCard } from './card-entry';
+import { PasteCard, useCardCode, clearPendingCard, pendingCard } from './card-entry';
 import { ruleLabel, type CycleRule } from './cycles';
 
 type Preview = CycleRule & { label: string; quota: number; days: number };
@@ -128,6 +128,19 @@ export function AuthFlow({
           ) : (
             <p className="muted">登录，继续你的连接。</p>
           )}
+          {!!pendingCard() && !plan && (
+            <div className="card-link-hint" role="status">
+              <strong>已收到兑换链接中的卡密</strong>
+              <span className="small muted">
+                {signup
+                  ? '卡密已自动填好，点击下方按钮验证即可开通。'
+                  : '登录后会自动进入兑换页，确认后充入你的账号。'}
+              </span>
+              <button className="text-link" disabled={busy} onClick={() => navigate(signup ? 'login' : 'register')}>
+                {signup ? '已有账号？登录后兑换 →' : '还没有账号？用这张卡开通 →'}
+              </button>
+            </div>
+          )}
           {plan && signup && <ActivationSummary plan={plan} />}
           {error && (
             <p className="message error" role="alert">
@@ -193,7 +206,7 @@ export function AuthFlow({
                     maxLength={128}
                     autoComplete={signup ? 'new-password' : 'current-password'}
                     disabled={busy}
-                    placeholder="至少 10 个字符"
+                    placeholder={signup ? '至少 10 个字符' : '输入登录密码'}
                   />
                 </label>
                 <button

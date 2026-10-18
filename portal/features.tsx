@@ -11,7 +11,6 @@ import { remainingAfter } from './experience';
 import { EmailCode } from './email-code';
 import { PasteCard, useCardCode, clearPendingCard } from './card-entry';
 import { OperationsReadiness } from './admin-support';
-import QRCode from 'qrcode';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -401,7 +400,8 @@ export function Connection({
               onClick={() =>
                 void work.run(async () => {
                   setQr(
-                    await QRCode.toDataURL(url, {
+                    // Loaded on demand: most visits never open the QR code.
+                    await (await import('qrcode')).default.toDataURL(url, {
                       width: 288,
                       margin: 3,
                       errorCorrectionLevel: 'M',
@@ -753,7 +753,7 @@ export function Redemption({
                 <h2>{preview.label}</h2>
                 {preview.kind === 'addon' && <Field label="选择要增加流量的套餐">
                   <Select value={target} onValueChange={value => { setTarget(value || ''); setPreview({...preview, after_expires:preview.targets?.find(p => p.id===value)?.expires || 0}); }}>
-                    <SelectTrigger><SelectValue placeholder="请选择有效套餐" /></SelectTrigger>
+                    <SelectTrigger><SelectValue placeholder="请选择有效套餐">{(() => { const p = preview.targets?.find(p => p.id === target); return p ? `${p.label} · ${expiryDate(p.expires)} 到期` : '请选择有效套餐'; })()}</SelectValue></SelectTrigger>
                     <SelectContent>{preview.targets?.map(p => <SelectItem key={p.id} value={p.id}>{p.label} · {expiryDate(p.expires)} 到期</SelectItem>)}</SelectContent>
                   </Select>
                 </Field>}
@@ -765,24 +765,26 @@ export function Redemption({
                     </dd>
                   </div>
                   <div>
-                    <dt>兑换后预计剩余</dt>
+                    <dt>{preview.package_billing ? '兑换后可用流量' : '兑换后预计剩余'}</dt>
                     <dd>
                       {preview.package_billing ? size(preview.after_quota) : remainingAfter(preview.after_quota, used) === null
                         ? '暂无法读取，请刷新订阅状态'
                         : size(remainingAfter(preview.after_quota, used)!)}
                     </dd>
                   </div>
-                  <div>
-                    <dt>{preview.package_billing ? '兑换后预计可用额度' : '兑换后总额度'}</dt>
-                    <dd>{size(preview.after_quota)}</dd>
-                  </div>
+                  {!preview.package_billing && (
+                    <div>
+                      <dt>兑换后总额度</dt>
+                      <dd>{size(preview.after_quota)}</dd>
+                    </div>
+                  )}
                   <div>
                     <dt>{preview.package_billing ? '本次权益有效期至' : '兑换后有效期至'}</dt>
                     <dd>{expiryDate(preview.after_expires)}</dd>
                   </div>
                 </dl>
                 <p className="small muted">
-                  {preview.package_billing ? '套餐兑换即计时，不延长旧套餐。加流量卡跟随所选套餐到期。' : '已用流量不清零。'}确认后卡密将绑定当前账号，不可转让。
+                  {preview.package_billing ? '有效套餐未到期时，新套餐接在其后计时，流量兑换后立即可用。加流量卡跟随所选套餐到期。' : '已用流量不清零。'}确认后卡密将绑定当前账号，不可转让。
                 </p>
                 <Button
                   type="button"
@@ -828,7 +830,22 @@ type Ticket = {
   created: number;
   updated: number;
   username?: string;
+  account_id?: string;
 };
+const ticketCategory: Record<string, string> = {
+  connection: '连接问题',
+  redeem: '卡密兑换',
+  account: '账号问题',
+  other: '其他问题',
+};
+// Staff shortcuts; inserted into the reply box for editing, never sent directly.
+const quickReplies: [string, string][] = [
+  ['更新订阅', '请在客户端里更新一次订阅（订阅 / 配置页面点刷新），然后换一个节点再试。'],
+  ['切换节点', '当前线路可能有波动，请先切换到其他地区的节点，稍后我们会检查该节点。'],
+  ['重新导入', '请在网站「连接与订阅」里重新导入订阅；如果重置过订阅链接，旧的配置需要删除后重新添加。'],
+  ['已处理', '已为你处理完成，请刷新后查看。如果还有问题，直接回复这个工单即可。'],
+  ['需要信息', '为方便排查，请告诉我们：使用的设备和客户端、出现的提示文字，以及大概发生的时间。'],
+];
 const ticketStatus: Record<string, string> = {
   waiting: '等待回复',
   replied: '已回复',
@@ -850,9 +867,10 @@ export function Tickets({
   const path = staff ? 'admin/tickets' : 'tickets',
     { data, reload, placeholder } = useData<{ tickets: Ticket[] }>(
       path,
-      staff ? 0 : 30000,
+      30000,
     ),
     work = useWork();
+  const [filter, setFilter] = useState('waiting');
   const [selected, setSelected] = useState<{
       ticket: Ticket;
       messages: { id: number; staff: number; body: string; created: number }[];
@@ -930,22 +948,34 @@ export function Tickets({
       >
         <section className="section">
           <div className="section-heading">
-            <h2>{staff ? '最近工单' : '问题记录'}</h2>
-            <Button
-              variant="outline"
-              onClick={() => {
-                setCreating(true);
-                setSelected(null);
-              }}
-            >
-              新建工单
-            </Button>
+            <h2>{staff ? '工单列表' : '问题记录'}</h2>
+            {!staff && (
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setCreating(true);
+                  setSelected(null);
+                }}
+              >
+                新建工单
+              </Button>
+            )}
           </div>
-          {placeholder}
-          {data && !data.tickets.length && (
-            <p className="empty">暂时没有工单。</p>
+          {staff && data && (
+            <div className="member-filters ticket-filters">
+              {(['waiting', 'replied', 'closed', 'all'] as const).map((key) => (
+                <button key={key} aria-pressed={filter === key} onClick={() => setFilter(key)}>
+                  {key === 'all' ? '全部' : key === 'waiting' ? '待回复' : ticketStatus[key]}{' '}
+                  {key === 'all' ? data.tickets.length : data.tickets.filter((t) => t.status === key).length}
+                </button>
+              ))}
+            </div>
           )}
-          {data?.tickets.map((t) => (
+          {placeholder}
+          {data && !data.tickets.filter((t) => !staff || filter === 'all' || t.status === filter).length && (
+            <p className="empty">{staff && filter === 'waiting' ? '没有待回复的工单，处理完了。' : '暂时没有工单。'}</p>
+          )}
+          {data?.tickets.filter((t) => !staff || filter === 'all' || t.status === filter).map((t) => (
             <button
               key={t.id}
               className={
@@ -956,7 +986,7 @@ export function Tickets({
               <strong>{t.subject}</strong>
               <span>
                 {!staff && !!t.unread && <strong className="ticket-unread">{t.unread} 条未读 · </strong>}{ticketStatus[t.status]}
-                {staff ? ' · ' + t.username : ''}
+                {staff ? ' · ' + t.username + ' · ' + (ticketCategory[t.category] || t.category) : ''}
               </span>
               <small>{when(t.updated)}</small>
             </button>
@@ -1043,11 +1073,23 @@ export function Tickets({
                   {ticketStatus[selected.ticket.status]}
                 </span>
               </div>
+              {staff && (
+                <p className="small muted ticket-meta">
+                  {ticketCategory[selected.ticket.category] || selected.ticket.category} · 提交于 {when(selected.ticket.created)} ·{' '}
+                  {selected.ticket.account_id ? (
+                    <a className="text-link strong-link" href={'#/admin_users?user=' + encodeURIComponent(selected.ticket.account_id)}>
+                      {selected.ticket.username} 的账号详情 →
+                    </a>
+                  ) : (
+                    selected.ticket.username
+                  )}
+                </p>
+              )}
               <div className="ticket-messages">
                 {selected.messages.map((m, i) => (
                   <article key={i} className={m.staff ? 'staff-reply' : ''}>
                     <small>
-                      {m.staff ? '管理员' : '用户'} · {when(m.created)}
+                      {m.staff ? '管理员' : staff ? selected.ticket.username || '用户' : '你'} · {when(m.created)}
                     </small>
                     <p>{m.body}</p>
                   </article>
@@ -1065,7 +1107,20 @@ export function Tickets({
                     });
                   }}
                 >
-                  <Field label="补充说明 / 回复">
+                  {staff && (
+                    <div className="quick-replies" aria-label="常用回复">
+                      {quickReplies.map(([label, text]) => (
+                        <button
+                          key={label}
+                          type="button"
+                          onClick={() => setReply((current) => (current.trim() ? current.trimEnd() + '\n' : '') + text)}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  <Field label={staff ? '回复用户（用户开启提醒时会收到邮件）' : '补充说明 / 回复'}>
                     <textarea
                       value={reply}
                       onChange={(e) => {
@@ -1097,7 +1152,7 @@ export function Tickets({
                         })
                       }
                     >
-                      问题已解决，关闭
+                      {staff ? '标记已解决并关闭' : '问题已解决，关闭'}
                     </Button>
                   </div>
                 </form>
@@ -1105,8 +1160,8 @@ export function Tickets({
             </>
           ) : (
             <div className="empty">
-              <h2>有什么可以帮你？</h2>
-              <p>选择左侧工单查看回复，或创建一个新问题。</p>
+              <h2>{staff ? '选择一个工单' : '有什么可以帮你？'}</h2>
+              <p>{staff ? '从左侧选择工单查看详情并回复。' : '选择左侧工单查看回复，或创建一个新问题。'}</p>
               <p className="small muted">
                 此页每 30 秒检查回复，返回页面时也会更新。
               </p>
@@ -1516,7 +1571,52 @@ type Ops = {
     expired: number;
   }[];
   status: Status;
+  trend?: { date: string; registered: number; redeemed: number }[];
 };
+function TrendBars({
+  title,
+  rows,
+  field,
+}: {
+  title: string;
+  rows: NonNullable<Ops['trend']>;
+  field: 'registered' | 'redeemed';
+}) {
+  const [hover, setHover] = useState<number | null>(null);
+  const max = Math.max(1, ...rows.map((r) => r[field]));
+  const total = rows.reduce((n, r) => n + r[field], 0);
+  const active = hover === null ? null : rows[hover];
+  return (
+    <figure className="trend-card">
+      <figcaption>
+        <span>{title}</span>
+        <strong>{total}</strong>
+        <small className="muted">
+          {active ? `${active.date.slice(5)} · ${active[field]}` : `近 ${rows.length} 天`}
+        </small>
+      </figcaption>
+      <div className="trend-bars" onMouseLeave={() => setHover(null)}>
+        {rows.map((r, i) => (
+          <button
+            key={r.date}
+            type="button"
+            aria-label={`${r.date} ${title} ${r[field]}`}
+            className={hover === i ? 'active' : ''}
+            onMouseEnter={() => setHover(i)}
+            onFocus={() => setHover(i)}
+            onBlur={() => setHover(null)}
+          >
+            <span style={{ height: r[field] ? `${Math.max(6, (r[field] / max) * 100)}%` : '2px' }} />
+          </button>
+        ))}
+      </div>
+      <div className="trend-axis small muted">
+        <span>{rows[0]?.date.slice(5)}</span>
+        <span>今天</span>
+      </div>
+    </figure>
+  );
+}
 export function Operations({
   navigate,
   onMembers,
@@ -1536,6 +1636,9 @@ export function Operations({
       />
       <div className="actions">
         <Button onClick={() => navigate('admin')}>生成卡密</Button>
+        <Button variant="outline" onClick={() => navigate('admin_users')}>
+          查找用户
+        </Button>
         <Button variant="outline" onClick={() => navigate('admin_tickets')}>
           处理工单
         </Button>
@@ -1545,7 +1648,6 @@ export function Operations({
       </div>
       {placeholder}
       {work.feedback}
-      <OperationsReadiness />
       {data && (
         <>
           <div className="ops-metrics">
@@ -1572,6 +1674,16 @@ export function Operations({
               </button>
             ))}
           </div>
+          {!!data.trend?.length && (
+            <div className="trend-grid">
+              <TrendBars title="新注册" rows={data.trend} field="registered" />
+              <TrendBars title="卡密兑换（含后台赠送）" rows={data.trend} field="redeemed" />
+            </div>
+          )}
+          <details className="ops-readiness">
+            <summary>服务检查与告警</summary>
+            <OperationsReadiness />
+          </details>
           <section className="section">
             <div className="section-heading">
               <h2>节点代理预算</h2>
@@ -1619,7 +1731,9 @@ export function Operations({
           </section>
           <div className="feature-split">
             <section className="section">
-              <h2>发布服务事件</h2>
+              <h2>服务事件</h2>
+              <details className="incident-form" open={!!incident} key={incident?.id || 'closed'}>
+              <summary>{incident ? '编辑事件' : '发布新事件'}</summary>
               <form
                 key={incident?.id || 'new'}
                 onSubmit={(e) => {
@@ -1677,6 +1791,7 @@ export function Operations({
                   </Button>
                 )}
               </form>
+              </details>
               {data.status.incidents.map((i) => (
                 <button
                   className="ticket-row"
@@ -1706,38 +1821,27 @@ export function Operations({
             </section>
           </div>
           <section className="section">
-            <h2>最近发卡批次</h2>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  {[
-                    '套餐 / 时间',
-                    '总数',
-                    '可分发',
-                    '已兑换',
-                    '已撤销',
-                    '已过期',
-                  ].map((t) => (
-                    <TableHead key={t}>{t}</TableHead>
+            <div className="section-heading">
+              <h2>最近发卡批次</h2>
+              <button className="text-link" onClick={() => { history.pushState(history.state, '', '#/admin?tab=batches'); window.dispatchEvent(new Event('hashchange')); }}>
+                全部批次 →
+              </button>
+            </div>
+            <div className="admin-table-wrap">
+              <table className="admin-table">
+                <thead>
+                  <tr><th>批次</th><th>总数</th><th>可用</th><th>已兑换</th><th>已作废</th><th>已过期</th></tr>
+                </thead>
+                <tbody>
+                  {data.batches.slice(0, 5).map((b, i) => (
+                    <tr key={i}>
+                      <td>{b.label}<small className="block muted">{when(b.created)}</small></td>
+                      <td data-label="总数">{b.total}</td><td data-label="可用">{b.available}</td><td data-label="已兑换">{b.redeemed}</td><td data-label="已作废">{b.revoked}</td><td data-label="已过期">{b.expired}</td>
+                    </tr>
                   ))}
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {data.batches.map((b, i) => (
-                  <TableRow key={i}>
-                    <TableCell>
-                      {b.label}
-                      <small className="block muted">{when(b.created)}</small>
-                    </TableCell>
-                    <TableCell>{b.total}</TableCell>
-                    <TableCell>{b.available}</TableCell>
-                    <TableCell>{b.redeemed}</TableCell>
-                    <TableCell>{b.revoked}</TableCell>
-                    <TableCell>{b.expired}</TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+                </tbody>
+              </table>
+            </div>
             {!data.batches.length && <p className="empty">还没有发卡记录。</p>}
           </section>
         </>

@@ -66,6 +66,13 @@ class Ledger:
                 CREATE INDEX IF NOT EXISTS idx_audit_target ON audit(target);
                 PRAGMA optimize;
             """)
+            card_columns = {r['name'] for r in db.execute('PRAGMA table_info(cards)')}
+            if 'note' not in card_columns:
+                # Admin-only recipient memo; never shown to customers.
+                db.execute("ALTER TABLE cards ADD COLUMN note TEXT NOT NULL DEFAULT ''")
+            if 'granted' not in card_columns:
+                # Internal one-time cards created by an administrator grant.
+                db.execute('ALTER TABLE cards ADD COLUMN granted INTEGER NOT NULL DEFAULT 0')
             if 'deleting' not in {r['name'] for r in db.execute('PRAGMA table_info(members)')}:
                 db.execute('ALTER TABLE members ADD COLUMN deleting INTEGER NOT NULL DEFAULT 0')
             if 'previous_sub_id' not in {
@@ -151,8 +158,24 @@ class Ledger:
             ),
         )
 
-    def issue(self, actor, label, quota_gib, days, count, valid_days, kind='base', **options):
-        from cycles import rules, MAX_GIB, FOREVER
+    @staticmethod
+    def card_note(note):
+        if note is None:
+            return ''
+        if not isinstance(note, str) or len(note.strip()) > 100:
+            raise DomainError('卡密备注最多 100 字')
+        return note.strip()
+
+    def set_card_note(self, actor, card_id, note):
+        note = self.card_note(note)
+        with self.transaction() as db:
+            if not db.execute('UPDATE cards SET note=? WHERE id=?', (note, card_id)).rowcount:
+                raise DomainError('卡密不存在')
+            self.audit(db, actor, 'card.note', card_id)
+
+    def card_spec(self, label, quota_gib, days, count, valid_days, kind='base', **options):
+        """Validate one issuing request; shared by card batches and direct grants."""
+        from cycles import rules, MAX_GIB
 
         rule = rules(options)
         if (rule['permanent'] or rule['reset_period'] != 'never') and not self.package_billing:
@@ -167,7 +190,7 @@ class Ledger:
             days = 1  # Historical SQL CHECK(days>0); addon duration is never used.
         if not all(type(v) is int for v in (quota_gib, days, count, valid_days)):
             raise DomainError('请输入整数')
-        if not (
+        if not isinstance(label, str) or not (
             1 <= quota_gib <= MAX_GIB
             and 1 <= days <= 365000
             and 1 <= count <= 100
@@ -175,38 +198,79 @@ class Ledger:
             and 1 <= len(label.strip()) <= 60
         ):
             raise DomainError('卡密参数超出范围')
+        return {
+            'label': label.strip(),
+            'quota': quota_gib * GIB,
+            'days': days,
+            'valid_days': valid_days,
+            'kind': kind,
+            'rule': rule,
+            'note': self.card_note(options.get('note')),
+        }
+
+    def insert_card(self, db, actor, spec, now, granted=False):
+        from cycles import FOREVER
+
+        raw = secrets.token_hex(16).upper()
+        code = '-'.join(raw[i : i + 8] for i in range(0, len(raw), 8))
+        card_id = secrets.token_hex(12)
+        db.execute(
+            """INSERT INTO cards
+            (id,digest,suffix,label,quota,days,redeem_before,created,created_by,kind)
+            VALUES(?,?,?,?,?,?,?,?,?,?)""",
+            (
+                card_id,
+                self.digest(code),
+                raw[-8:],
+                spec['label'],
+                spec['quota'],
+                spec['days'],
+                now + spec['valid_days'] * 86400 if spec['valid_days'] else FOREVER,
+                now,
+                actor,
+                spec['kind'],
+            ),
+        )
+        db.execute(
+            'UPDATE cards SET permanent=?,reset_period=?,reset_interval=?,note=?,granted=? WHERE id=?',
+            (*spec['rule'].values(), spec.get('note', ''), int(granted), card_id),
+        )
+        self.audit(db, actor, 'card.issue', card_id)
+        return card_id, code
+
+    def issue(self, actor, label, quota_gib, days, count, valid_days, kind='base', **options):
+        spec = self.card_spec(label, quota_gib, days, count, valid_days, kind, **options)
         now = int(time.time())
         result = []
         with self.transaction() as db:
             for _ in range(count):
-                raw = secrets.token_hex(16).upper()
-                code = '-'.join(raw[i : i + 8] for i in range(0, len(raw), 8))
-                card_id = secrets.token_hex(12)
-                db.execute(
-                    """INSERT INTO cards
-                    (id,digest,suffix,label,quota,days,redeem_before,created,created_by,kind)
-                    VALUES(?,?,?,?,?,?,?,?,?,?)""",
-                    (
-                        card_id,
-                        self.digest(code),
-                        raw[-8:],
-                        label.strip(),
-                        quota_gib * GIB,
-                        days,
-                        now + valid_days * 86400 if valid_days else FOREVER,
-                        now,
-                        actor,
-                        kind,
-                    ),
-                )
-                db.execute(
-                    'UPDATE cards SET permanent=?,reset_period=?,reset_interval=? WHERE id=?',
-                    (*rule.values(), card_id),
-                )
-                result.append({'id': card_id, 'code': code})
-                self.audit(db, actor, 'card.issue', card_id)
+                card_id, code = self.insert_card(db, actor, spec, now)
+                result.append({'id': card_id, 'code': code, 'suffix': code.replace('-', '')[-8:]})
         # Plaintext codes are returned once, never stored or logged.
         return result
+
+    def apply_card(self, db, member, card, now, target=None):
+        """Grant one unredeemed card inside the caller's transaction."""
+        member_id = member['id']
+        if self.package_billing:
+            from package_ledger import grant
+
+            self.ensure_billing(db, member, now)
+            grant(db, member_id, card, now, target)
+            self.refresh_desired(db, member_id, now, force=True)
+        else:
+            if card['kind'] != 'base':
+                raise DomainError('流量包计费尚未启用')
+            expires = max(now, member['expires']) + card['days'] * 86400
+            db.execute(
+                """UPDATE members SET quota=quota+?,expires=?,revision=revision+1,
+                       sync_error=NULL WHERE id=?""",
+                (card['quota'], expires, member_id),
+            )
+        db.execute(
+            'UPDATE cards SET redeemed_by=?,redeemed_at=? WHERE id=?',
+            (member_id, now, card['id']),
+        )
 
     def redeem(self, member_id, code, now=None, target=None):
         now = int(time.time()) if now is None else now
@@ -223,27 +287,30 @@ class Ledger:
                 raise DomainError('卡密已使用')
             if card['redeem_before'] <= now:
                 raise DomainError('卡密无效或已过期')
-            if self.package_billing:
-                from package_ledger import grant
-
-                self.ensure_billing(db, member, now)
-                grant(db, member_id, card, now, target)
-                self.refresh_desired(db, member_id, now, force=True)
-            else:
-                if card['kind'] != 'base':
-                    raise DomainError('流量包计费尚未启用')
-                expires = max(now, member['expires']) + card['days'] * 86400
-                db.execute(
-                    """UPDATE members SET quota=quota+?,expires=?,revision=revision+1,
-                           sync_error=NULL WHERE id=?""",
-                    (card['quota'], expires, member_id),
-                )
-            db.execute(
-                'UPDATE cards SET redeemed_by=?,redeemed_at=? WHERE id=?',
-                (member_id, now, card['id']),
-            )
+            self.apply_card(db, member, card, now, target)
             self.audit(db, member_id, 'card.redeem', card['id'])
         return {'already_redeemed': False, 'card_id': card['id']}
+
+    def grant(self, actor, member_id, spec, target=None, now=None):
+        """Administrator grant: an internal one-time card issued and redeemed atomically.
+
+        The card row keeps grants visible in card, batch and redemption history and
+        reuses the same billing path as a customer redemption.
+        """
+        now = int(time.time()) if now is None else now
+        with self.transaction() as db:
+            member = db.execute('SELECT * FROM members WHERE id=?', (member_id,)).fetchone()
+            if not member:
+                raise DomainError('用户不存在')
+            if member['deleting']:
+                raise DomainError('账号删除处理中，不能调整权益')
+            if member['disabled']:
+                raise DomainError('账号已停用，请先恢复账号再赠送')
+            card_id, _ = self.insert_card(db, actor, spec, now, granted=True)
+            card = db.execute('SELECT * FROM cards WHERE id=?', (card_id,)).fetchone()
+            self.apply_card(db, member, card, now, target)
+            self.audit(db, actor, 'account.grant', member_id)
+        return {'card_id': card_id}
 
     def ensure_billing(self, db, member, now):
         from package_ledger import initialize
@@ -304,6 +371,25 @@ class Ledger:
             if not n:
                 raise DomainError('只能作废尚未使用的卡密')
             self.audit(db, actor, 'card.revoke', card_id)
+
+    def revoke_batch(self, actor, label, created, now=None):
+        """Revoke every unused, unexpired card from one issuing batch."""
+        if not isinstance(label, str) or type(created) is not int:
+            raise DomainError('批次参数不正确')
+        now = int(time.time()) if now is None else now
+        with self.transaction() as db:
+            ids = [
+                r[0]
+                for r in db.execute(
+                    """SELECT id FROM cards WHERE label=? AND created=? AND redeemed_by IS NULL
+                    AND revoked_at IS NULL AND redeem_before>?""",
+                    (label, created, now),
+                )
+            ]
+            for card_id in ids:
+                db.execute('UPDATE cards SET revoked_at=? WHERE id=?', (now, card_id))
+                self.audit(db, actor, 'card.revoke', card_id)
+        return len(ids)
 
     def sync_member(self, member_id, panel):
         """Caller serializes sync jobs; never hold a DB transaction across HTTP.

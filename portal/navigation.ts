@@ -23,10 +23,14 @@ const parents: Record<string, string> = {
   status: 'home',
   operations: 'account',
   admin_tickets: 'account',
+  admin_logs: 'account',
 };
 export const tabFor = (view: string) => parents[view] || 'home';
-export const authModeFor = (view: string): 'register' | 'login' =>
-  ['home', 'register', 'redeem'].includes(view) ? 'register' : 'login';
+// Visitors who signed in on this browser before land on login, not activation.
+export const authModeFor = (view: string, returning = false): 'register' | 'login' =>
+  view === 'register' || (!returning && ['home', 'redeem'].includes(view))
+    ? 'register'
+    : 'login';
 export const afterLogin = (view: string) =>
   ['login', 'register', 'account'].includes(view) ? 'home' : view;
 export const isAuthenticationView = (view: string, signedIn: boolean) =>
@@ -46,6 +50,7 @@ export const showDock = (
     'admin_users',
     'admin_content',
     'admin_tickets',
+    'admin_logs',
     'operations',
   ].includes(view);
 export const readView = () => {
