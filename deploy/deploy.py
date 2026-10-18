@@ -16,16 +16,6 @@ def ssh(command, data=None):
         input=data,stdout=subprocess.PIPE,stderr=subprocess.PIPE,check=True)
     return p.stdout
 
-env={}
-for line in Path('/Users/ml/.ssh/noether-3xui.env').read_text().splitlines():
-    if '=' in line:
-        k,v=line.split('=',1)
-        env[k]=shlex.split(v)[0] if v else ''
-from urllib.parse import urlsplit
-path=urlsplit(env['XUI_ACCESS_URL']).path.rstrip('/')
-config={'database':'/var/lib/jamie-portal/portal.db','origin':'https://sub.chuyi.uk',
-        'port':18766,'panel_url':'https://panel.chuyi.uk:48173'+path,
-        'panel_token':env['XUI_API_TOKEN'],'node_catalog':'/etc/jamie-node-catalog.json'}
 archive=io.BytesIO()
 with tarfile.open(fileobj=archive,mode='w:gz') as tar:
     tar.add(ROOT/'backend',arcname='backend',filter=lambda x:None if '__pycache__' in x.name else x)
@@ -37,6 +27,18 @@ if not stage.startswith('/root/jamie-portal-stage.'):
 ssh('tar xzf - -C '+shlex.quote(stage),archive.getvalue())
 config_exists=ssh('test ! -e /etc/jamie-portal.json || echo exists').strip()
 if not config_exists:
+    # First install only: panel credentials come from a private local env file.
+    env={}
+    env_file=Path(os.environ.get('JAMIE_XUI_ENV','/Users/ml/.ssh/noether-3xui.env'))
+    for line in env_file.read_text().splitlines():
+        if '=' in line:
+            k,v=line.split('=',1)
+            env[k]=shlex.split(v)[0] if v else ''
+    from urllib.parse import urlsplit
+    path=urlsplit(env['XUI_ACCESS_URL']).path.rstrip('/')
+    config={'database':'/var/lib/jamie-portal/portal.db','origin':'https://sub.chuyi.uk',
+            'port':18766,'panel_url':'https://panel.chuyi.uk:48173'+path,
+            'panel_token':env['XUI_API_TOKEN'],'node_catalog':'/etc/jamie-node-catalog.json'}
     # Credential provisioning over SSH stdin; never command arguments or output.
     ssh("umask 077; python3 -c 'import sys,pathlib; pathlib.Path(\"/etc/jamie-portal.json\").write_bytes(sys.stdin.buffer.read())'",json.dumps(config).encode())
 ssh("getent passwd jamie-portal >/dev/null || useradd --system --home-dir /var/lib/jamie-portal --shell /usr/sbin/nologin jamie-portal")

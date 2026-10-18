@@ -63,6 +63,10 @@ export function Dashboard({
   const now = useNow();
   const resetDates = (s.billing?.packages || []).filter(p => p.next_reset && p.next_reset < p.expires && (p.status === 'active' || p.status === 'exhausted')).map(p => p.next_reset!);
   const nextReset = resetDates.length ? Math.min(...resetDates) : 0;
+  // Base packages run in parallel; the latest one is when service really ends.
+  const activeBase = (s.billing?.packages || []).filter((p) => p.status === 'active' && p.kind !== 'addon');
+  const latest = activeBase.length > 1 ? Math.max(...activeBase.map((p) => p.expires)) : 0;
+  const finalExpiry = latest && deadline(latest) !== deadline(s.expires) ? latest : 0;
   const hasEntitlements = !!s.quota || !!s.billing?.packages.length;
   const remaining = s.used === null ? null : Math.max(0, s.quota - s.used),
     days = Math.ceil((s.expires - now) / 86400);
@@ -187,8 +191,8 @@ export function Dashboard({
                   <dd>{deadline(s.expires)}</dd>
                 </div>
                 <div>
-                  <dt>{nextReset ? '下次流量重置' : '剩余时间'}</dt>
-                  <dd>{nextReset ? deadline(nextReset) : remainingTime(s.expires, now)}</dd>
+                  <dt>{finalExpiry > s.expires ? '最晚到期' : nextReset ? '下次流量重置' : '剩余时间'}</dt>
+                  <dd>{finalExpiry > s.expires ? deadline(finalExpiry) : nextReset ? deadline(nextReset) : remainingTime(s.expires, now)}</dd>
                 </div>
               </dl>
             </section>
@@ -221,6 +225,11 @@ export function Dashboard({
                       ? '联系支持'
                       : '兑换续费'}
                   </Button>
+                  {!(s.enabled === false && days > 0 && remaining !== 0) && (
+                    <button className="text-link" onClick={() => navigate('plans')}>
+                      还没有卡密？查看套餐与获取方式 →
+                    </button>
+                  )}
                   <button
                     className="text-link"
                     onClick={() => navigate('subscription')}

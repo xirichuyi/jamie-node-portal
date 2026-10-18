@@ -8,7 +8,7 @@ import {
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import type { Notice } from './content';
-// Once per page visit, not every route change or background content refresh.
+// At most once per page visit, not every route change or background content refresh.
 let entryAnnouncementShown = false;
 export const noticeKey = (n: Notice) => `${n.id}:${n.revision}`;
 export const publicNotices = (notices: Notice[]) =>
@@ -42,11 +42,14 @@ export function NoticeEntry({
   ready,
   navigate,
   showStrip = true,
+  deferPopup = false,
 }: {
   notices: Notice[];
   ready: boolean;
   navigate: (view: string) => void;
   showStrip?: boolean;
+  /** Sign-in and activation pages stay uninterrupted; the notice waits for the next page. */
+  deferPopup?: boolean;
 }) {
   const [read, setRead] = useState(acknowledged),
     [selected, setSelected] = useState<string | null>(null);
@@ -54,10 +57,12 @@ export function NoticeEntry({
     current = visible.find((n) => n.id === selected);
   const unread = visible.filter((n) => !read.has(noticeKey(n)));
   useEffect(() => {
-    if (!ready || !visible.length || entryAnnouncementShown) return;
+    if (!ready || !visible.length || entryAnnouncementShown || deferPopup) return;
     entryAnnouncementShown = true;
-    setSelected(visible[0].id);
-  }, [ready, notices]);
+    // Only an unread pinned notice interrupts; read ones stay in the strip.
+    const first = visible.find((n) => n.pinned && !read.has(noticeKey(n)));
+    if (first) setSelected(first.id);
+  }, [ready, notices, deferPopup]);
   useEffect(() => {
     const sync = () => setRead(acknowledged());
     window.addEventListener('jamie-notice-read', sync);
@@ -100,7 +105,11 @@ export function NoticeEntry({
           if (!value) close();
         }}
       >
-        <DialogContent className="notice-dialog">
+        <DialogContent
+          className="notice-dialog"
+          // Pointer users get no lingering focus ring; keyboard users return to the strip.
+          finalFocus={(type) => type === 'keyboard'}
+        >
           <DialogTitle>{current?.title}</DialogTitle>
           <DialogDescription>
             {current

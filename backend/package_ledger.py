@@ -6,7 +6,7 @@ must separately verify the panel's cross-node enforcement semantics.
 """
 
 import secrets
-from cycles import install_rules, next_reset, expiry
+from cycles import install_rules, next_reset, expiry, FOREVER
 from errors import DomainError
 
 
@@ -159,6 +159,21 @@ def targets(db, uid, now):
     ]
 
 
+def base_start(db, uid, card, now):
+    """Renewals queue after the latest live dated base package; quota is usable at once.
+
+    Permanent cards never extend, and a permanent package does not delay others.
+    """
+    if card['permanent']:
+        return now
+    latest = db.execute(
+        """SELECT MAX(expires) FROM entitlement_packages WHERE member_id=? AND revoked=0
+        AND kind IN ('base','transition') AND permanent=0 AND expires>? AND expires<?""",
+        (uid, now, FOREVER),
+    ).fetchone()[0]
+    return max(now, latest or now)
+
+
 def grant(db, uid, card, now, target=None):
     state = db.execute('SELECT * FROM billing_accounts WHERE member_id=?', (uid,)).fetchone()
     if not state or state['fault']:
@@ -187,7 +202,7 @@ def grant(db, uid, card, now, target=None):
     elif kind != 'base':
         raise DomainError('卡密类型不正确')
     card = {'permanent': 0, 'reset_period': 'never', 'reset_interval': 30, **dict(card)}
-    expires = parent['expires'] if parent else expiry(card, now)
+    expires = parent['expires'] if parent else expiry(card, base_start(db, uid, card, now))
     pid = secrets.token_hex(16)
     db.execute(
         """INSERT INTO entitlement_packages

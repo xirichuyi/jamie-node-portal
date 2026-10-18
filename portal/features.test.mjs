@@ -20,6 +20,7 @@ const users = await vite.ssrLoadModule('/portal/admin-users.tsx');
 const notices = await vite.ssrLoadModule('/portal/notice-entry.tsx');
 const support = await vite.ssrLoadModule('/portal/admin-support.tsx');
 const cards = await vite.ssrLoadModule('/portal/card-entry.tsx');
+const cardAdmin = await vite.ssrLoadModule('/portal/admin-cards.tsx');
 void test('card links keep the credential in the fragment and validate pasted values', () => {
   const code = '01234567-89ABCDEF-01234567-89ABCDEF';
   const link = cards.cardLink(code, 'https://example.test');
@@ -108,11 +109,11 @@ test('permanent recurring plans show renewal without a fake expiry date', async 
   assert.doesNotMatch(balances, /9999/);
 });
 test('admin support exposes card lookup and credential-free login diagnostics', () => {
-  const cards = renderToStaticMarkup(
-    React.createElement(support.CardSearch, { onRevoke: async () => {} }),
+  const ledger = renderToStaticMarkup(
+    React.createElement(cardAdmin.CardLedger, { batch: null, onClearBatch: () => {} }),
   );
-  assert.match(cards, /完整卡密、8 位尾号或兑换用户名/);
-  assert.doesNotMatch(cards, /最近 500 张/);
+  assert.match(ledger, /卡密 \/ 尾号 \/ 兑换账号 \/ 备注/);
+  assert.doesNotMatch(ledger, /最近 500 张/);
   const diagnosis = renderToStaticMarkup(
     React.createElement(support.LoginDiagnosis),
   );

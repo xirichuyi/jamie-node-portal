@@ -1,6 +1,7 @@
 """Admin routes; shared access checks run before dispatch."""
 
 import secrets
+import time
 from urllib.parse import parse_qs, urlsplit
 from errors import DomainError
 from http_types import UNHANDLED
@@ -8,6 +9,11 @@ from validation import text
 from passwords import hash_password
 from routes_support import ticket_request
 import mail_history
+
+
+def card_plan(app, data):
+    """A saved plan when plan_id is given, otherwise the custom fields in the request."""
+    return app.content.plan_for_card(data['plan_id']) if data.get('plan_id') else data
 
 
 def dispatch(ctx):
@@ -80,7 +86,7 @@ def dispatch(ctx):
         return ctx.reply(200, {'ok': True, 'id': item_id})
     if write and path == '/api/admin/cards':
         app.limit('issue:' + account['id'], 10, 60)
-        plan = app.content.plan_for_card(data['plan_id']) if data.get('plan_id') else data
+        plan = card_plan(app, data)
         codes = app.ledger.issue(
             account['id'],
             plan.get('name', plan.get('label')),
@@ -92,8 +98,47 @@ def dispatch(ctx):
             permanent=plan.get('permanent', False),
             reset_period=plan.get('reset_period', 'never'),
             reset_interval=plan.get('reset_interval', 30),
+            note=data.get('note'),
         )
         return ctx.reply(200, {'codes': codes})
+    if write and path == '/api/admin/grant':
+        app.limit('grant:' + account['id'], 20, 600)
+        plan = card_plan(app, data)
+        spec = app.ledger.card_spec(
+            plan.get('name', plan.get('label')),
+            plan['quota_gib'],
+            plan.get('days', 1),
+            1,
+            0,
+            plan.get('kind', 'base'),
+            permanent=plan.get('permanent', False),
+            reset_period=plan.get('reset_period', 'never'),
+            reset_interval=plan.get('reset_interval', 30),
+            note=data.get('note'),
+        )
+        target = data.get('target') if spec['kind'] == 'addon' else None
+        result = app.ledger.grant(account['id'], text(data.get('id'), 64), spec, target)
+        app.wake.set()
+        return ctx.reply(200, result)
+    if write and path == '/api/admin/revoke-batch':
+        app.limit('issue:' + account['id'], 10, 60)
+        count = app.ledger.revoke_batch(account['id'], data.get('label'), data.get('created'))
+        return ctx.reply(200, {'revoked': count})
+    if write and path == '/api/admin/card-note':
+        app.limit('user-action:' + account['id'], 60, 600)
+        app.ledger.set_card_note(account['id'], text(data.get('id'), 64), data.get('note'))
+        return ctx.reply(200, {'ok': True})
+    if write and path == '/api/admin/user-note':
+        app.limit('user-action:' + account['id'], 60, 600)
+        app.users.save_note(account['id'], text(data.get('id'), 64), data.get('body', ''))
+        return ctx.reply(200, {'ok': True})
+    if not write and path == '/api/admin/batches':
+        with app.ledger.connect() as db:
+            return ctx.reply(200, {'batches': app.features.batches(db, int(time.time()), 100)})
+    if not write and path == '/api/admin/badges':
+        return ctx.reply(200, app.users.badges())
+    if not write and path == '/api/admin/audit':
+        return ctx.reply(200, app.users.audit_log(parse_qs(urlsplit(ctx.raw_path).query)))
     if write and path == '/api/admin/revoke':
         app.ledger.revoke(account['id'], data['id'])
         return ctx.reply(200, {'ok': True})

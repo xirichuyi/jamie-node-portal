@@ -1,10 +1,20 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select';
+import {
+  Select,
+  SelectTrigger,
+  SelectValue,
+  SelectContent,
+  SelectItem,
+} from '@/components/ui/select';
 import { LoginDiagnosis } from './admin-support';
 import { expiryLabel, ruleLabel } from './cycles';
-import { DeleteAccount, PackageBalances, type PackageBalance } from './features';
+import {
+  DeleteAccount,
+  PackageBalances,
+  type PackageBalance,
+} from './features';
 import {
   Sheet,
   SheetContent,
@@ -26,6 +36,10 @@ import {
   TableCell,
 } from '@/components/ui/table';
 import { api } from './api';
+import { notify } from './toast';
+import { auditLabels } from './admin-logs';
+import { GrantDialog, UserNote } from './admin-grant';
+import type { Plan } from './content';
 import { remainingTime } from './experience';
 
 export type ManagedUser = {
@@ -38,6 +52,7 @@ export type ManagedUser = {
   used: number | null;
   remaining: number | null;
   expires: number;
+  final_expires?: number;
   created: number;
   plan_name: string | null;
   primary_state: string;
@@ -51,6 +66,7 @@ export type ManagedUser = {
   last_proxy_activity: number | null;
   proxy_activity: 'unknown' | 'recent' | 'unconfirmed';
   counter_reset: number;
+  has_note?: number;
   packages?: PackageBalance[];
 };
 type Listing = {
@@ -70,7 +86,11 @@ type Detail = {
     days: number;
     kind?: string;
     redeemed_at: number;
+    granted?: number;
+    suffix?: string;
+    note?: string;
   }[];
+  note: { body: string; updated: number; updated_by: string } | null;
   audit: { actor: string; action: string; created: number }[];
   sessions: number;
   last_seen: number | null;
@@ -125,22 +145,45 @@ export function UserStatus({ member: m }: { member: ManagedUser }) {
   );
 }
 const actions: Record<string, string> = {
+  ...auditLabels,
   'account.register': '开通账号',
-  'card.redeem': '兑换卡密',
-  'account.disable': '停用账号',
-  'account.enable': '恢复账号',
-  'account.reset_password': '重置登录密码',
-  'account.password': '修改登录密码',
-  'account.revoke_sessions': '退出网站登录',
-  'account.retry_sync': '重试节点同步',
 };
+const sorts: [string, string][] = [
+  ['created:desc', '最新注册'],
+  ['created:asc', '最早注册'],
+  ['username:asc', '用户名 A–Z'],
+  ['expires:asc', '最早到期'],
+  ['remaining:asc', '剩余流量从少到多'],
+  ['remaining:desc', '剩余流量从多到少'],
+  ['used:desc', '已用流量从多到少'],
+  ['last_proxy_activity:desc', '最近代理活动'],
+  ['last_web_seen:desc', '最近网站活动'],
+];
+// Show a separate final date only when it falls on a later day than the nearest one.
+const laterDay = (m: { expires: number; final_expires?: number }) =>
+  !!m.final_expires && m.final_expires > m.expires && expiryLabel(m.final_expires) !== expiryLabel(m.expires);
+const queryFromURL = () =>
+  typeof location === 'undefined'
+    ? ''
+    : new URLSearchParams(location.hash.split('?')[1] || '').get('q') || '';
+function csvCell(value: unknown) {
+  const text = value === null || value === undefined ? '' : String(value);
+  // Neutralize spreadsheet formulas and quote every cell.
+  return (
+    '"' + (/^[=+\-@]/.test(text) ? "'" + text : text).replace(/"/g, '""') + '"'
+  );
+}
 
 export function UserManager({
   initialScope = 'all',
+  plans = [],
+  packageBilling = false,
 }: {
   initialScope?: string;
+  plans?: Plan[];
+  packageBilling?: boolean;
 }) {
-  const [q, setQ] = useState(''),
+  const [q, setQ] = useState(queryFromURL),
     [scope, setScope] = useState(initialScope),
     [page, setPage] = useState(1);
   const [sort, setSort] = useState('created:desc');
@@ -165,7 +208,14 @@ export function UserManager({
     setError('');
     try {
       const result = await api<Listing>(
-        'admin/users?' + new URLSearchParams({ q, scope, page: String(page), sort: sort.split(':')[0], direction: sort.split(':')[1] }),
+        'admin/users?' +
+          new URLSearchParams({
+            q,
+            scope,
+            page: String(page),
+            sort: sort.split(':')[0],
+            direction: sort.split(':')[1],
+          }),
       );
       if (version === sequence.current) setData(result);
     } catch (e) {
@@ -203,6 +253,12 @@ export function UserManager({
       const id = selectedFromURL();
       activeUser.current = id;
       setSelected(id);
+      const query = queryFromURL();
+      if (query) {
+        setQ(query);
+        setScope('all');
+        setPage(1);
+      }
     };
     window.addEventListener('popstate', sync);
     window.addEventListener('hashchange', sync);
@@ -294,6 +350,54 @@ export function UserManager({
       setBusy(false);
     }
   };
+  const exportCSV = async () => {
+    try {
+      const result = await api<{ members: ManagedUser[] }>(
+        'admin/users?' +
+          new URLSearchParams({
+            q,
+            scope,
+            sort: sort.split(':')[0],
+            direction: sort.split(':')[1],
+            export: '1',
+          }),
+      );
+      const header = [
+        '用户名',
+        '套餐',
+        '状态',
+        '剩余流量(GiB)',
+        '总流量(GiB)',
+        '到期时间',
+        '注册时间',
+        '最近网站活动',
+      ];
+      const rows = result.members.map((u) => [
+        u.username,
+        u.plan_name || '',
+        u.disabled ? '账号停用' : userStates[u.primary_state] || '',
+        u.remaining === null ? '' : (u.remaining / 1024 ** 3).toFixed(2),
+        (u.quota / 1024 ** 3).toFixed(2),
+        u.expires ? expiryLabel(u.expires) : '',
+        time(u.created),
+        u.last_web_seen ? time(u.last_web_seen) : '',
+      ]);
+      const csv =
+        '\ufeff' +
+        [header, ...rows].map((r) => r.map(csvCell).join(',')).join('\r\n');
+      const url = URL.createObjectURL(
+        new Blob([csv], { type: 'text/csv;charset=utf-8' }),
+      );
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `Jamie-Node-users-${new Date().toISOString().slice(0, 10)}.csv`;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      notify(`已导出 ${rows.length} 位用户`);
+    } catch (e) {
+      notify((e as Error).message, 'error');
+    }
+  };
   const m = detail?.member;
   return (
     <>
@@ -302,30 +406,45 @@ export function UserManager({
           <h1>用户管理</h1>
           <p className="muted">查找用户，查看订阅与处理记录。</p>
         </div>
-        <Button
-          variant="outline"
-          disabled={loading}
-          onClick={() => void load()}
-        >
-          刷新列表
-        </Button>
+        <div className="actions">
+          <Button
+            variant="ghost"
+            disabled={!data?.total}
+            onClick={() => void exportCSV()}
+          >
+            导出 CSV
+          </Button>
+          <Button
+            variant="outline"
+            disabled={loading}
+            onClick={() => void load()}
+          >
+            刷新列表
+          </Button>
+        </div>
       </header>
       <div className="user-toolbar">
-        <Select value={sort} onValueChange={(value) => { if (value) setSort(value); setPage(1); }}>
-          <SelectTrigger aria-label="用户排序"><SelectValue /></SelectTrigger>
+        <Select
+          value={sort}
+          onValueChange={(value) => {
+            if (value) setSort(value);
+            setPage(1);
+          }}
+        >
+          <SelectTrigger aria-label="用户排序">
+            <SelectValue>{sorts.find(([v]) => v === sort)?.[1]}</SelectValue>
+          </SelectTrigger>
           <SelectContent>
-            {[
-              ['created:desc','最新注册'], ['created:asc','最早注册'],
-              ['username:asc','用户名 A–Z'], ['expires:asc','最早到期'],
-              ['remaining:asc','剩余流量从少到多'], ['remaining:desc','剩余流量从多到少'],
-              ['used:desc','已用流量从多到少'], ['last_proxy_activity:desc','最近代理活动'],
-              ['last_web_seen:desc','最近网站活动'],
-            ].map(([value,label]) => <SelectItem key={value} value={value}>{label}</SelectItem>)}
+            {sorts.map(([value, label]) => (
+              <SelectItem key={value} value={value}>
+                {label}
+              </SelectItem>
+            ))}
           </SelectContent>
         </Select>
         <Input
           aria-label="搜索全部用户"
-          placeholder="搜索用户名"
+          placeholder="搜索用户名或邮箱"
           value={q}
           onChange={(e) => {
             setQ(e.target.value);
@@ -344,19 +463,25 @@ export function UserManager({
         <LoginDiagnosis />
       </details>
       <div className="member-filters user-filter-list">
-        {scopes.map(([key, label]) => (
-          <button
-            key={key}
-            aria-pressed={scope === key}
-            onClick={() => {
-              setScope(key);
-              setPage(1);
-            }}
-          >
-            {label}
-            {data ? ` ${data.counts[key] || 0}` : ''}
-          </button>
-        ))}
+        {scopes
+          // Empty filters are noise; keep 全部, the active one and anything with users.
+          .filter(
+            ([key]) =>
+              !data || key === 'all' || key === scope || data.counts[key],
+          )
+          .map(([key, label]) => (
+            <button
+              key={key}
+              aria-pressed={scope === key}
+              onClick={() => {
+                setScope(key);
+                setPage(1);
+              }}
+            >
+              {label}
+              {data ? ` ${data.counts[key] || 0}` : ''}
+            </button>
+          ))}
       </div>
       {error && (
         <p role="alert" className="message error">
@@ -369,12 +494,14 @@ export function UserManager({
         </p>
       )}
       {loading && !data && <p role="status">正在读取用户…</p>}
-      <Table>
+      <Table className="admin-table user-table">
         <TableHeader>
           <TableRow>
-            {['用户', '套餐', '剩余 / 总流量', '到期时间', '状态', '活动'].map((t) => (
-              <TableHead key={t}>{t}</TableHead>
-            ))}
+            {['用户', '套餐', '剩余 / 总流量', '最近到期', '状态', '活动'].map(
+              (t) => (
+                <TableHead key={t}>{t}</TableHead>
+              ),
+            )}
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -384,7 +511,7 @@ export function UserManager({
               className="managed-user-row"
               onClick={() => open(u.id)}
             >
-              <TableCell>
+              <TableCell className="cell-title">
                 <button
                   className="text-link"
                   onClick={(e) => {
@@ -394,27 +521,44 @@ export function UserManager({
                 >
                   {u.username}
                 </button>
+                {!!u.has_note && (
+                  <span className="tag" title="有管理员备注">
+                    备注
+                  </span>
+                )}
                 {!!u.admin && <small className="sync-caption">管理员</small>}
               </TableCell>
-              <TableCell>{u.plan_name || '尚未开通'}</TableCell>
-              <TableCell>
+              <TableCell data-label="套餐">
+                {u.plan_name || '尚未开通'}
+              </TableCell>
+              <TableCell data-label="剩余 / 总流量">
                 {volume(u.remaining)} / {volume(u.quota)} GiB
               </TableCell>
-              <TableCell>
-                {u.expires
-                  ? expiryLabel(u.expires)
-                  : '尚未开通'}
+              <TableCell data-label="最近到期">
+                {u.expires ? expiryLabel(u.expires) : '尚未开通'}
                 <small className="sync-caption">
-                  {remainingTime(u.expires)}
+                  {laterDay(u)
+                    ? `最晚 ${expiryLabel(u.final_expires!)}`
+                    : remainingTime(u.expires)}
                 </small>
               </TableCell>
-              <TableCell>
+              <TableCell data-label="状态">
                 <UserStatus member={u} />
               </TableCell>
-              <TableCell>
-                <span>{u.proxy_activity === 'recent' ? '最近有流量' : u.proxy_activity === 'unknown' ? '代理活动未知' : '暂无近期流量记录'}</span>
-                <small className="sync-caption">网站：{time(u.last_web_seen)}</small>
-                {!!u.counter_reset && <small className="sync-caption">流量计数回退，需核对</small>}
+              <TableCell data-label="活动">
+                <span>
+                  {u.proxy_activity === 'recent'
+                    ? '最近有流量'
+                    : u.proxy_activity === 'unknown'
+                      ? '代理活动未知'
+                      : '暂无近期流量记录'}
+                </span>
+                <small className="sync-caption">
+                  网站：{time(u.last_web_seen)}
+                </small>
+                {!!u.counter_reset && (
+                  <small className="sync-caption">流量计数回退，需核对</small>
+                )}
               </TableCell>
             </TableRow>
           ))}
@@ -427,7 +571,9 @@ export function UserManager({
           )}
         </TableBody>
       </Table>
-      <p className="small muted">代理活动由相邻采样的流量变化判断，不等于实时在线人数；网站活动仅表示保留会话中的最近访问。</p>
+      <p className="small muted">
+        代理活动由相邻采样的流量变化判断，不等于实时在线人数；网站活动仅表示保留会话中的最近访问。
+      </p>
       {data && (
         <div className="user-pagination">
           <Button
@@ -483,6 +629,27 @@ export function UserManager({
           {detail && m && (
             <>
               {m.packages && <PackageBalances packages={m.packages} />}
+              {!m.deleting && (
+                <section className="user-detail-section">
+                  <h2>调整权益</h2>
+                  <p className="small muted">
+                    直接为该用户发放套餐或加流量，用于补偿、赠送或线下收款后开通；记录会出现在兑换与操作记录中。
+                  </p>
+                  <GrantDialog
+                    member={m}
+                    plans={plans}
+                    packageBilling={packageBilling}
+                    disabled={busy || !!m.disabled}
+                    onGranted={async () => {
+                      await Promise.all([loadDetail(), load()]);
+                    }}
+                  />
+                  {!!m.disabled && (
+                    <p className="small muted">账号已停用，恢复后才能赠送。</p>
+                  )}
+                </section>
+              )}
+              <UserNote userId={m.id} note={detail.note} onSaved={loadDetail} />
               <section className="user-detail-section">
                 <h2>当前状态</h2>
                 <dl className="user-facts">
@@ -529,10 +696,23 @@ export function UserManager({
                       {volume(m.used)} / {volume(m.quota)} GiB
                     </dd>
                   </div>
-                  <div>
-                    <dt>有效期至</dt>
-                    <dd>{m.expires ? expiryLabel(m.expires) : '尚未开通'}</dd>
-                  </div>
+                  {laterDay(m) ? (
+                    <>
+                      <div>
+                        <dt>最近到期</dt>
+                        <dd>{expiryLabel(m.expires)}</dd>
+                      </div>
+                      <div>
+                        <dt>最晚到期（服务截止）</dt>
+                        <dd>{expiryLabel(m.final_expires!)}</dd>
+                      </div>
+                    </>
+                  ) : (
+                    <div>
+                      <dt>有效期至</dt>
+                      <dd>{m.expires ? expiryLabel(m.expires) : '尚未开通'}</dd>
+                    </div>
+                  )}
                 </dl>
                 <p className="small muted">
                   用量读取于 {time(detail.checked_at)}
@@ -544,11 +724,19 @@ export function UserManager({
                 {detail.history.length ? (
                   detail.history.map((r, i) => (
                     <div className="user-record" key={i}>
-                      <strong>{r.label}</strong>
+                      <strong>
+                        {r.label}
+                        {!!r.granted && <span className="tag">后台赠送</span>}
+                      </strong>
                       <span>
-                        +{volume(r.quota)} GiB · {r.kind === 'addon' ? '不增加天数' : ruleLabel(r)}
+                        +{volume(r.quota)} GiB ·{' '}
+                        {r.kind === 'addon' ? '不增加天数' : ruleLabel(r)}
                       </span>
-                      <small>{time(r.redeemed_at)}</small>
+                      <small>
+                        {time(r.redeemed_at)}
+                        {r.suffix && ` · 卡密尾号 ${r.suffix}`}
+                        {r.note && ` · 备注：${r.note}`}
+                      </small>
                     </div>
                   ))
                 ) : (
@@ -568,7 +756,11 @@ export function UserManager({
               {!m.admin && (
                 <section className="user-detail-section">
                   <h2>账号操作</h2>
-                  {!!m.deleting && <p role="status" className="message">删除处理中，清理完成后将从列表移除。</p>}
+                  {!!m.deleting && (
+                    <p role="status" className="message">
+                      删除处理中，清理完成后将从列表移除。
+                    </p>
+                  )}
                   <p className="small muted">
                     当前有效网站会话 {detail.sessions} 个 · 最近活动{' '}
                     {time(detail.last_seen)}
@@ -595,12 +787,21 @@ export function UserManager({
                     >
                       {m.disabled ? '恢复账号' : '停用账号'}
                     </Button>
-                    <DeleteAccount username={m.username} userId={m.id} disabled={busy || !!m.deleting} onDeleted={() => {
-                      setMessage('删除处理中，账号已停用。');
-                      history.replaceState(history.state, '', '#/admin_users');
-                      window.dispatchEvent(new Event('hashchange'));
-                      void load();
-                    }} />
+                    <DeleteAccount
+                      username={m.username}
+                      userId={m.id}
+                      disabled={busy || !!m.deleting}
+                      onDeleted={() => {
+                        setMessage('删除处理中，账号已停用。');
+                        history.replaceState(
+                          history.state,
+                          '',
+                          '#/admin_users',
+                        );
+                        window.dispatchEvent(new Event('hashchange'));
+                        void load();
+                      }}
+                    />
                   </div>
                 </section>
               )}

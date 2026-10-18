@@ -44,17 +44,41 @@ class PackageLedgerTests(unittest.TestCase):
             target,
         )
 
-    def test_independent_expiry_and_earliest_first(self):
+    def test_renewal_queues_after_latest_expiry_and_spends_earliest_first(self):
         with self.ledger.transaction() as db:
             first = self.grant(db, days=1)
             second = self.grant(db, days=2)
+            expires = {
+                r['id']: r['expires']
+                for r in db.execute('SELECT id,expires FROM entitlement_packages')
+            }
+            # 1 day + 2 days = service until day 3, not overlapping clocks.
+            self.assertEqual(expires[first], 100 + 86400)
+            self.assertEqual(expires[second], 100 + 3 * 86400)
             billing.sample(db, 'alice', 120, 200)
             state = billing.snapshot(db, 'alice', 200)
+            # Queued quota is usable immediately.
             self.assertEqual(state['remaining'], 80)
             spent = {p['id']: p['spent'] for p in state['packages']}
             self.assertEqual(spent[first], 100)
             self.assertEqual(spent[second], 20)
-            self.assertEqual(billing.snapshot(db, 'alice', 100 + 2 * 86400)['remaining'], 0)
+            self.assertEqual(billing.snapshot(db, 'alice', 100 + 2 * 86400)['remaining'], 80)
+            self.assertEqual(billing.snapshot(db, 'alice', 100 + 3 * 86400)['remaining'], 0)
+
+    def test_renewal_ignores_expired_permanent_and_other_members(self):
+        with self.ledger.transaction() as db:
+            self.grant(db, days=1, now=100)
+            self.grant(db, days=5, uid='bob', now=100)
+            # Previous package already expired: the new one starts now.
+            late = self.grant(db, days=2, now=100 + 2 * 86400)
+            row = db.execute('SELECT expires FROM entitlement_packages WHERE id=?', (late,)).fetchone()
+            self.assertEqual(row[0], 100 + 4 * 86400)
+            card = {'id': 'x', 'kind': 'base', 'permanent': 1, 'reset_period': 'never', 'reset_interval': 30, 'days': 1}
+            self.assertEqual(billing.base_start(db, 'alice', card, 100 + 2 * 86400), 100 + 2 * 86400)
+            db.execute("UPDATE entitlement_packages SET permanent=1,expires=? WHERE id=?", (billing.FOREVER, late))
+            dated = {**card, 'permanent': 0}
+            # A permanent package never delays dated renewals.
+            self.assertEqual(billing.base_start(db, 'alice', dated, 100 + 2 * 86400), 100 + 2 * 86400)
 
     def test_addon_requires_owned_live_package_and_inherits_exact_expiry(self):
         with self.ledger.transaction() as db:

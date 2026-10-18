@@ -50,6 +50,9 @@ class UserWorkspace:
                 member_id TEXT PRIMARY KEY REFERENCES members(id),
                 raw INTEGER NOT NULL, sampled INTEGER NOT NULL, changed INTEGER,
                 counter_reset INTEGER NOT NULL DEFAULT 0)""")
+            db.execute("""CREATE TABLE IF NOT EXISTS admin_user_notes (
+                member_id TEXT PRIMARY KEY REFERENCES members(id),
+                body TEXT NOT NULL, updated INTEGER NOT NULL, updated_by TEXT NOT NULL)""")
 
     def traffic(self):
         with self.lock:
@@ -113,6 +116,7 @@ class UserWorkspace:
                     WHERE s.account_id=m.id) AS last_web_seen,
                 (SELECT changed FROM user_traffic_activity WHERE member_id=m.id) AS last_proxy_activity,
                 COALESCE((SELECT counter_reset FROM user_traffic_activity WHERE member_id=m.id),0) AS counter_reset,
+                EXISTS(SELECT 1 FROM admin_user_notes WHERE member_id=m.id) AS has_note,
                 (SELECT label FROM cards WHERE redeemed_by=m.id AND kind='base' ORDER BY redeemed_at DESC,id DESC LIMIT 1) AS plan_name
                 FROM accounts a JOIN members m ON m.id=a.id """
                     + ('WHERE a.id=? ' if uid is not None else '')
@@ -127,6 +131,8 @@ class UserWorkspace:
             billing = billing_by_id.get(row['id'])
             if billing:
                 row['expires'] = billing['next_expiry'] or billing['last_expiry']
+                # Packages run in parallel; the latest one is when service really ends.
+                row['final_expires'] = billing['last_expiry']
                 row['quota'] = billing['quota']
                 row['used'] = billing['used']
                 row['remaining'] = billing['remaining']
@@ -191,6 +197,13 @@ class UserWorkspace:
         unknown = [m for m in selected if m[sort] is None]
         known.sort(key=lambda m: m[sort], reverse=direction == 'desc')
         selected = known + unknown
+        if query.get('export', [''])[0] == '1':
+            return {
+                'members': selected,
+                'total': len(selected),
+                'checked_at': sample['at'],
+                'usage_error': sample['error'],
+            }
         pages = max(1, (len(selected) + 24) // 25)
         page = min(page, pages)
         return {
@@ -216,7 +229,8 @@ class UserWorkspace:
             history = [
                 dict(r)
                 for r in db.execute(
-                    """SELECT label,quota,days,kind,redeemed_at,permanent,reset_period,reset_interval FROM cards
+                    """SELECT label,quota,days,kind,redeemed_at,permanent,reset_period,reset_interval,
+                granted,suffix,note FROM cards
                 WHERE redeemed_by=? ORDER BY redeemed_at DESC,id DESC LIMIT 50""",
                     (uid,),
                 )
@@ -234,6 +248,11 @@ class UserWorkspace:
                 'SELECT COUNT(*) FROM sessions WHERE account_id=? AND expires>?',
                 (uid, int(time.time())),
             ).fetchone()[0]
+            note = db.execute(
+                """SELECT n.body,n.updated,COALESCE(a.username,'') AS updated_by
+                FROM admin_user_notes n LEFT JOIN accounts a ON a.id=n.updated_by WHERE n.member_id=?""",
+                (uid,),
+            ).fetchone()
             seen = db.execute(
                 """SELECT MAX(d.seen) FROM sessions s JOIN session_details d ON s.digest=d.digest
                 WHERE s.account_id=?""",
@@ -245,6 +264,107 @@ class UserWorkspace:
             'audit': audit,
             'sessions': sessions,
             'last_seen': seen,
+            'note': dict(note) if note else None,
             'checked_at': sample['at'],
             'usage_error': sample['error'],
         }
+
+    def save_note(self, actor, uid, body):
+        if not isinstance(body, str) or len(body) > 2000:
+            raise DomainError('备注最多 2000 字')
+        body = body.strip()
+        with self.app.ledger.transaction() as db:
+            if not db.execute('SELECT 1 FROM members WHERE id=?', (uid,)).fetchone():
+                raise DomainError('用户不存在')
+            if body:
+                db.execute(
+                    """INSERT INTO admin_user_notes VALUES(?,?,?,?) ON CONFLICT(member_id)
+                    DO UPDATE SET body=excluded.body,updated=excluded.updated,updated_by=excluded.updated_by""",
+                    (uid, body, int(time.time()), actor),
+                )
+            else:
+                db.execute('DELETE FROM admin_user_notes WHERE member_id=?', (uid,))
+            self.app.ledger.audit(db, actor, 'account.note', uid)
+
+    def badges(self):
+        """Cheap sidebar counters; never call the panel."""
+        with self.app.ledger.connect() as db:
+            row = db.execute(
+                """SELECT (SELECT COUNT(*) FROM support_tickets WHERE status='waiting') AS tickets,
+                (SELECT COUNT(*) FROM members WHERE sync_error IS NOT NULL) AS sync_errors,
+                (SELECT COUNT(*) FROM members WHERE revision>synced_revision) AS pending"""
+            ).fetchone()
+        return dict(row)
+
+    def audit_log(self, query):
+        """Paged audit trail with readable actors and targets."""
+        action = query.get('action', [''])[0]
+        keyword = query.get('q', [''])[0].strip().lower()
+        try:
+            page = max(1, min(100000, int(query.get('page', ['1'])[0])))
+        except ValueError:
+            raise DomainError('页码不正确') from None
+        if len(action) > 40 or len(keyword) > 64:
+            raise DomainError('筛选条件不正确')
+        where, args = [], []
+        if action:
+            if action.endswith('.'):
+                where.append('a.action LIKE ?')
+                args.append(action + '%')
+            else:
+                where.append('a.action=?')
+                args.append(action)
+        if keyword:
+            where.append('(u.username=? OR t.username=? OR c.suffix=?)')
+            args.extend([keyword, keyword, keyword.upper()])
+        clause = (' WHERE ' + ' AND '.join(where)) if where else ''
+        base = """FROM audit a LEFT JOIN accounts u ON u.id=a.actor
+            LEFT JOIN accounts t ON t.id=a.target LEFT JOIN cards c ON c.id=a.target""" + clause
+        with self.app.ledger.connect() as db:
+            total = db.execute('SELECT COUNT(*) ' + base, args).fetchone()[0]
+            pages = max(1, (total + 49) // 50)
+            page = min(page, pages)
+            rows = [
+                dict(r)
+                for r in db.execute(
+                    """SELECT a.action,a.created,COALESCE(u.username,'系统') AS actor,
+                    t.id AS target_user_id,t.username AS target_user,c.label AS card_label,c.suffix AS card_suffix
+                    """
+                    + base
+                    + ' ORDER BY a.id DESC LIMIT 50 OFFSET ?',
+                    (*args, (page - 1) * 50),
+                )
+            ]
+        return {'items': rows, 'total': total, 'page': page, 'pages': pages}
+
+    def trend(self, days=14):
+        """Daily registrations and redemptions in Shanghai time; empty days are real zeros."""
+        import datetime
+
+        tz = datetime.timezone(datetime.timedelta(hours=8))
+        today = datetime.datetime.now(tz).date()
+        first = today - datetime.timedelta(days=days - 1)
+        start = int(datetime.datetime.combine(first, datetime.time(), tz).timestamp())
+        with self.app.ledger.connect() as db:
+            def counts(sql):
+                return {
+                    r[0]: r[1]
+                    for r in db.execute(
+                        "SELECT date(created+28800,'unixepoch') AS d,COUNT(*) FROM ("
+                        + sql
+                        + ') GROUP BY d',
+                        (start,),
+                    )
+                }
+
+            registered = counts(
+                "SELECT created FROM audit WHERE action='account.register' AND created>=?"
+            )
+            redeemed = counts(
+                'SELECT redeemed_at AS created FROM cards WHERE redeemed_at>=?'
+            )
+        result = []
+        for i in range(days):
+            d = (first + datetime.timedelta(days=i)).isoformat()
+            result.append({'date': d, 'registered': registered.get(d, 0), 'redeemed': redeemed.get(d, 0)})
+        return result

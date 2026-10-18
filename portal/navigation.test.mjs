@@ -16,12 +16,15 @@ test('direct admin entry asks for login and returns to the requested management 
     'admin_content',
     'admin',
     'admin_tickets',
+    'admin_logs',
     'operations',
   ]) {
     assert.equal(authModeFor(view), 'login');
     assert.equal(afterLogin(view), view);
   }
   assert.equal(authModeFor('home'), 'register');
+  assert.equal(authModeFor('home', true), 'login');
+  assert.equal(authModeFor('register', true), 'register');
   assert.equal(afterLogin('login'), 'home');
 });
 test('authentication, recovery, loading and forced password change never show the dock', () => {

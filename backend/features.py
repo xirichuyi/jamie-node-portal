@@ -204,7 +204,8 @@ class Features:
     def ticket(self, account, ticket_id, staff=False):
         with self.ledger.connect() as db:
             row = db.execute(
-                'SELECT * FROM support_tickets WHERE id=? AND (? OR account_id=?)',
+                """SELECT t.*,a.username FROM support_tickets t JOIN accounts a ON a.id=t.account_id
+                WHERE t.id=? AND (? OR t.account_id=?)""",
                 (ticket_id, int(staff), account['id']),
             ).fetchone()
             if not row:
@@ -245,7 +246,8 @@ class Features:
                 )
             else:
                 row = db.execute(
-                    'SELECT * FROM support_tickets WHERE id=? AND (? OR account_id=?)',
+                    """SELECT t.*,a.username FROM support_tickets t JOIN accounts a ON a.id=t.account_id
+                WHERE t.id=? AND (? OR t.account_id=?)""",
                     (tid, int(staff), account['id']),
                 ).fetchone()
                 if not row:
@@ -296,7 +298,7 @@ class Features:
             if card['redeemed_by']:
                 raise DomainError('卡密已兑换，请查看兑换记录')
             if self.ledger.package_billing:
-                from package_ledger import targets, snapshot
+                from package_ledger import targets, snapshot, base_start
                 from cycles import expiry
 
                 state = snapshot(db, account_id, now)
@@ -317,7 +319,7 @@ class Features:
                     'after_quota': (state['remaining'] if state else 0) + card['quota'],
                     'after_expires': (parent['expires'] if parent else 0)
                     if card['kind'] == 'addon'
-                    else expiry(card, now),
+                    else expiry(card, base_start(db, account_id, card, now)),
                 }
             return {
                 'label': card['label'],
@@ -507,6 +509,23 @@ class Features:
             self.ledger.audit(db, account['id'], 'incident.save', iid)
         return {'id': iid}
 
+    @staticmethod
+    def batches(db, now, limit=30):
+        return [
+            dict(r)
+            for r in db.execute(
+                """SELECT label,created,COUNT(*) AS total,
+            SUM(redeemed_at IS NOT NULL) AS redeemed,
+            SUM(redeemed_at IS NULL AND revoked_at IS NULL AND redeem_before>?) AS available,
+            SUM(revoked_at IS NOT NULL) AS revoked,
+            SUM(redeemed_at IS NULL AND revoked_at IS NULL AND redeem_before<=?) AS expired,
+            MIN(kind) AS kind,MIN(quota) AS quota,
+            SUM(granted) AS granted
+            FROM cards GROUP BY created,label ORDER BY created DESC LIMIT ?""",
+                (now, now, limit),
+            )
+        ]
+
     def operations(self):
         now = int(time.time())
         with self.ledger.connect() as db:
@@ -522,18 +541,7 @@ class Features:
             counts['waiting_tickets'] = db.execute(
                 "SELECT COUNT(*) FROM support_tickets WHERE status='waiting'"
             ).fetchone()[0]
-            batches = [
-                dict(r)
-                for r in db.execute(
-                    """SELECT label,created,COUNT(*) AS total,
-                SUM(redeemed_at IS NOT NULL) AS redeemed,
-                SUM(redeemed_at IS NULL AND revoked_at IS NULL AND redeem_before>?) AS available,
-                SUM(revoked_at IS NOT NULL) AS revoked,
-                SUM(redeemed_at IS NULL AND revoked_at IS NULL AND redeem_before<=?) AS expired
-                FROM cards GROUP BY created,label ORDER BY created DESC LIMIT 30""",
-                    (now, now),
-                )
-            ]
+            batches = self.batches(db, now)
             cache = db.execute(
                 "SELECT value,updated FROM feature_cache WHERE key='budgets'"
             ).fetchone()
@@ -552,4 +560,5 @@ class Features:
             'budgets_at': cache['updated'] if cache else 0,
             'backup_at': backup_at,
             'status': self.service_status(),
+            'trend': self.app.users.trend(),
         }

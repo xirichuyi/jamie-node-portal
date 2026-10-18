@@ -9,28 +9,30 @@ import React, {
 import { createRoot } from 'react-dom/client';
 import { DockViewport } from './dock-viewport';
 import { AuthFlow } from './auth';
-import { captureCardLink, pendingCard, cardLink } from './card-entry';
-import { CycleFields, ruleLabel, FOREVER } from './cycles';
+import { captureCardLink, pendingCard } from './card-entry';
+import { ruleLabel, FOREVER } from './cycles';
 const UserManager = React.lazy(() =>
   import('./admin-users').then((module) => ({ default: module.UserManager })),
 );
 import { NoticeEntry } from './notice-entry';
-import { CardSearch, LoginDiagnosis, MailHistory } from './admin-support';
+import { AdminShell, adminViews } from './admin-shell';
+import { Toaster, notify } from './toast';
+const CardsWorkspace = React.lazy(() =>
+  import('./admin-cards').then((module) => ({ default: module.CardsWorkspace })),
+);
+const LogsWorkspace = React.lazy(() =>
+  import('./admin-logs').then((module) => ({ default: module.LogsWorkspace })),
+);
 import {
   ArrowUpRight,
   ArrowRight,
-  Check,
-  Copy,
-  Download,
   Globe2,
   Home,
   KeyRound,
   LogOut,
   Moon,
-  RefreshCw,
   Shield,
   Sun,
-  Ticket,
   UserRound,
   ArrowLeft,
   ChevronRight,
@@ -41,7 +43,6 @@ import {
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select';
 import type { PackageBalance } from './features';
 import { Progress } from '@/components/ui/progress';
 import {
@@ -67,11 +68,11 @@ import './content.css';
 import './glass.css';
 import './features.css';
 import './layout.css';
+import './admin.css';
 import {
   Dashboard,
   AccountHub,
   DeviceGuide,
-  AdminNavigation,
 } from './journeys';
 import {
   Connection,
@@ -103,7 +104,6 @@ import {
   Contact,
   PageTitle,
   ContentAdmin,
-  PlanIssuer,
   type Catalog,
 } from './content';
 
@@ -131,21 +131,6 @@ type Me = {
   }[];
   nodes: string[];
 };
-type Card = {
-  id: string;
-  suffix: string;
-  label: string;
-  quota: number;
-  days: number;
-  redeem_before: number;
-  redeemed_at: number | null;
-  revoked_at: number | null;
-  redeemed_by: string | null;
-};
-type Admin = {
-  cards: Card[];
-  audit: { actor: string; action: string; target: string; created: number }[];
-};
 const gib = (bytes: number) =>
   new Intl.NumberFormat('zh-CN', { maximumFractionDigits: 2 }).format(
     bytes / 1024 ** 3,
@@ -169,9 +154,14 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
     </label>
   );
 }
+function returningVisitor() {
+  try {
+    return localStorage.getItem('jamie-returning') === '1';
+  } catch {
+    return false;
+  }
+}
 function App() {
-  const [customKind, setCustomKind] = useState('base');
-  const [customCycle, setCustomCycle] = useState<import('./cycles').CycleRule>({ permanent: 0, reset_period: 'never', reset_interval: 30 });
   const [justActivated, setJustActivated] = useState(false);
   const [memberScope, setMemberScope] = useState('all');
   const { view, navigate: setView, back } = useNavigation();
@@ -196,18 +186,20 @@ function App() {
     [busy, setBusy] = useState(false),
     [notice, setNotice] = useState(''),
     [error, setError] = useState(''),
-    [admin, setAdmin] = useState<Admin | null>(null),
-    [codes, setCodes] = useState<string[]>([]),
     [confirm, setConfirm] = useState<{
       title: string;
       text: string;
       run: () => Promise<void>;
     } | null>(null);
+  // Follow the system appearance until the visitor picks one with the toggle.
+  const systemDark = () =>
+    typeof matchMedia !== 'undefined' && matchMedia('(prefers-color-scheme: dark)').matches;
   const [dark, setDark] = useState(() => {
     try {
-      return localStorage.getItem('jamie-theme') === 'dark';
+      const saved = localStorage.getItem('jamie-theme');
+      return saved ? saved === 'dark' : systemDark();
     } catch {
-      return false;
+      return systemDark();
     }
   });
   const ticketDraft = useMemo<TicketDraft>(
@@ -222,6 +214,9 @@ function App() {
     try {
       const m = await api<Me>('me');
       setMe(m);
+      try {
+        localStorage.setItem('jamie-returning', '1');
+      } catch {}
       if (m.user.must_change) setView('security', true);
       return m;
     } catch (e) {
@@ -233,9 +228,6 @@ function App() {
     } finally {
       setLoaded(true);
     }
-  }
-  async function loadAdmin() {
-    setAdmin(await api<Admin>('admin/cards-overview'));
   }
   async function act(fn: () => Promise<void>) {
     setBusy(true);
@@ -274,20 +266,37 @@ function App() {
   }, [me?.user.username]);
   useEffect(() => {
     document.documentElement.classList.toggle('dark', dark);
-    try {
-      localStorage.setItem('jamie-theme', dark ? 'dark' : 'light');
-    } catch {}
   }, [dark]);
+  useEffect(() => {
+    const media = matchMedia('(prefers-color-scheme: dark)');
+    const follow = () => {
+      try {
+        if (localStorage.getItem('jamie-theme')) return;
+      } catch {}
+      setDark(media.matches);
+    };
+    media.addEventListener('change', follow);
+    return () => media.removeEventListener('change', follow);
+  }, []);
   useEffect(() => {
     if (me?.subscription.pending) {
       const id = setInterval(() => void load().catch(() => {}), 5000);
       return () => clearInterval(id);
     }
   }, [me?.subscription.pending]);
+  // Feedback floats above the page so it stays visible after long scrolls.
   useEffect(() => {
-    if (view === 'admin' && me?.user.admin && !me.user.must_change)
-      void act(loadAdmin);
-  }, [view, me?.user.admin, me?.user.must_change]);
+    if (notice) {
+      notify(notice);
+      setNotice('');
+    }
+  }, [notice]);
+  useEffect(() => {
+    if (error) {
+      notify(error, 'error');
+      setError('');
+    }
+  }, [error]);
   useEffect(() => {
     setError('');
     setNotice('');
@@ -339,20 +348,6 @@ function App() {
     setError('');
     setNotice('');
   }
-  async function copy(value: string) {
-    await navigator.clipboard.writeText(value);
-    setNotice('已复制');
-  }
-  function exportCodes() {
-    const url = URL.createObjectURL(
-      new Blob([codes.join('\n')], { type: 'text/plain;charset=utf-8' }),
-    );
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'Jamie-Node-cards.txt';
-    a.click();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
-  }
   const s = me?.subscription;
   const status = !s?.quota
     ? '尚未开通'
@@ -384,7 +379,12 @@ function App() {
           {me && <span className="username">{me.user.username}</span>}
           <button
             className="icon-button"
-            onClick={() => setDark(!dark)}
+            onClick={() => {
+              setDark(!dark);
+              try {
+                localStorage.setItem('jamie-theme', dark ? 'light' : 'dark');
+              } catch {}
+            }}
             aria-label={dark ? '切换浅色' : '切换深色'}
           >
             {dark ? <Sun size={18} /> : <Moon size={18} />}
@@ -396,25 +396,20 @@ function App() {
         className={
           'wide view-' +
           view +
-          (isAuthenticationView(view, !!me) ? ' auth-layout' : '')
+          (isAuthenticationView(view, !!me) ? ' auth-layout' : '') +
+          (me?.user.admin && adminViews.includes(view) ? ' admin-mode' : '')
         }
       >
-        {loaded && tabFor(view) !== view && !me?.user.must_change && (
+        {loaded && tabFor(view) !== view && !me?.user.must_change && !(me?.user.admin && adminViews.includes(view)) && (
           <button className="back-link" onClick={back}>
             <ArrowLeft size={17} />
             返回
           </button>
         )}
-        {![
-          'notices',
-          'admin',
-          'admin_users',
-          'admin_content',
-          'admin_tickets',
-          'operations',
-        ].includes(view) && (
+        {view !== 'notices' && !adminViews.includes(view) && (
           <NoticeEntry
             showStrip={view === 'home'}
+            deferPopup={!loaded || isAuthenticationView(view, !!me)}
             notices={content?.notices || []}
             ready={!!content}
             navigate={navigate}
@@ -428,17 +423,6 @@ function App() {
             </button>
           </div>
         )}
-        {error && (
-          <div className="message error" role="alert">
-            {error}
-          </div>
-        )}
-        {notice && (
-          <div className="message success" role="status">
-            <Check size={17} />
-            {notice}
-          </div>
-        )}
         {!loaded ? (
           <section className="intro">
             <p className="eyebrow">JAMIE-NODE</p>
@@ -447,7 +431,7 @@ function App() {
         ) : !me &&
           !['plans', 'guide', 'help', 'notices', 'recover'].includes(view) ? (
           <AuthFlow
-            mode={view === 'redeem' && pendingCard() ? 'login' : authModeFor(view)}
+            mode={view === 'redeem' && pendingCard() ? (returningVisitor() ? 'login' : 'register') : authModeFor(view, returningVisitor())}
             navigate={navigate}
             onSuccess={async (created) => {
               await act(async () => {
@@ -467,16 +451,39 @@ function App() {
           />
         ) : (
           <>
-            {me?.user.admin &&
-              [
-                'admin',
-                'admin_users',
-                'admin_content',
-                'operations',
-                'admin_tickets',
-              ].includes(view) && (
-                <AdminNavigation view={view} navigate={navigate} />
-              )}
+            {me?.user.admin && adminViews.includes(view) && (
+              <AdminShell view={view} navigate={navigate}>
+                <React.Suspense fallback={<p role="status">正在加载…</p>}>
+                  {view === 'operations' && (
+                    <Operations
+                      navigate={navigate}
+                      onMembers={(scope) => {
+                        setMemberScope(scope);
+                        navigate('admin_users');
+                      }}
+                    />
+                  )}
+                  {view === 'admin_tickets' && <Tickets staff />}
+                  {view === 'admin_users' && (
+                    <UserManager initialScope={memberScope} plans={content?.plans || []} packageBilling={!!content?.package_billing} />
+                  )}
+                  {view === 'admin_content' && (
+                    <>
+                      <PageTitle
+                        eyebrow=""
+                        title="公告与套餐"
+                        description="套餐、公告与联系方式保存后立即显示在用户端，无需重新部署。"
+                      />
+                      <ContentAdmin onSaved={loadContent} />
+                    </>
+                  )}
+                  {view === 'admin' && (
+                    <CardsWorkspace plans={content?.plans || []} packageBilling={!!content?.package_billing} />
+                  )}
+                  {view === 'admin_logs' && <LogsWorkspace />}
+                </React.Suspense>
+              </AdminShell>
+            )}
             {view === 'recover' && <Recover navigate={navigate} />}
             {view === 'usage' && me && (
               <>
@@ -491,37 +498,7 @@ function App() {
             {view === 'tickets' && me && <Tickets draft={ticketDraft} />}
             {view === 'sessions' && me && <Sessions />}
             {view === 'status' && me && <ServiceStatus />}
-            {view === 'operations' && me?.user.admin && (
-              <Operations
-                navigate={navigate}
-                onMembers={(scope) => {
-                  setMemberScope(scope);
-                  navigate('admin_users');
-                }}
-              />
-            )}
-            {view === 'admin_tickets' && me?.user.admin && <Tickets staff />}
-            {view === 'admin_users' && me?.user.admin && (
-              <React.Suspense fallback={<p role="status">正在加载用户管理…</p>}>
-                <UserManager initialScope={memberScope} />
-              </React.Suspense>
-            )}
-            {view === 'admin_content' && me?.user.admin && (
-              <>
-                <PageTitle
-                  eyebrow=""
-                  title="公告与套餐"
-                  description="发布后显示在用户端，置顶公告优先展示。"
-                />
-                <ContentAdmin onSaved={loadContent} />
-              </>
-            )}
-            {[
-              'operations',
-              'admin_tickets',
-              'admin_users',
-              'admin_content',
-            ].includes(view) &&
+            {adminViews.includes(view) &&
               me &&
               !me.user.admin && (
                 <p className="message error">此页面仅管理员可访问。</p>
@@ -680,8 +657,6 @@ function App() {
                   void act(async () => {
                     await api('logout', {});
                     setMe(null);
-                    setAdmin(null);
-                    setCodes([]);
                     setView('account', true);
                   })
                 }
@@ -766,8 +741,6 @@ function App() {
                     void act(async () => {
                       await api('logout', {});
                       setMe(null);
-                      setAdmin(null);
-                      setCodes([]);
                       setView('home');
                     })
                   }
@@ -776,224 +749,6 @@ function App() {
                   退出登录
                 </Button>
               </>
-            )}
-            {view === 'admin' && me?.user.admin && (
-              <>
-                <section className="intro">
-                  <p className="eyebrow">ADMINISTRATION</p>
-                  <div className="title-row">
-                    <h1>卡密管理</h1>
-                    <Button
-                      variant="outline"
-                      onClick={() => void act(loadAdmin)}
-                      disabled={busy}
-                    >
-                      <RefreshCw />
-                      刷新
-                    </Button>
-                  </div>
-                  <p className="muted">
-                    生成卡密后私下发给用户，不接入在线支付。
-                  </p>
-                </section>
-                <nav className="admin-local-nav" aria-label="管理页面分区">
-                  {[
-                    ['admin-issue', '发卡'],
-                    ['admin-cards', '卡密记录'],
-                    ['admin-audit', '操作记录'],
-                  ].map(([id, label]) => (
-                    <button
-                      key={id}
-                      onClick={() => {
-                        const el = document.getElementById(id);
-                        if (el?.tagName === 'DETAILS')
-                          el.setAttribute('open', '');
-                        el?.scrollIntoView({
-                          block: 'start',
-                          behavior: 'smooth',
-                        });
-                      }}
-                    >
-                      {label}
-                    </button>
-                  ))}
-                </nav>
-                <div id="admin-issue">
-                  <PlanIssuer
-                    plans={content?.plans || []}
-                    disabled={busy}
-                    onIssued={async (values) => {
-                      setCodes(values);
-                      await loadAdmin();
-                      setNotice('套餐卡密已生成，请在下方复制或下载。');
-                    }}
-                  />
-                </div>
-                <section className="surface">
-                  <details className="custom-issue">
-                    <summary>自定义额度发卡</summary>
-                    <form
-                      onSubmit={(e) => {
-                        e.preventDefault();
-                        const f = new FormData(e.currentTarget);
-                        void act(async () => {
-                          const data = {
-                            label: f.get('label'),
-                            kind: f.get('kind') || 'base',
-                            quota_gib: Number(f.get('quota_gib')),
-                            days: Number(f.get('days')),
-                            count: Number(f.get('count')),
-                            valid_days: Number(f.get('valid_days')),
-                            permanent: customKind === 'base' && f.get('permanent') === '1',
-                            reset_period: customKind === 'base' ? f.get('reset_period') || 'never' : 'never',
-                            reset_interval: Number(f.get('reset_interval') || 30),
-                          };
-                          const r = await api<{ codes: { code: string }[] }>(
-                            'admin/cards',
-                            data,
-                          );
-                          setCodes(r.codes.map((c) => c.code));
-                          await loadAdmin();
-                          setNotice(
-                            '卡密已生成，请立即保存。完整卡密只显示这一次。',
-                          );
-                        });
-                      }}
-                    >
-                      <div className="form-grid">
-                        {content?.package_billing && <Field label="卡密类型">
-                          <Select name="kind" value={customKind} onValueChange={v => setCustomKind(v || 'base')}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="base">独立套餐卡</SelectItem><SelectItem value="addon">加流量卡（不增加天数）</SelectItem></SelectContent></Select>
-                        </Field>}
-                        <Field label="卡名称">
-                          <Input
-                            name="label"
-                            defaultValue="标准月卡"
-                            required
-                            maxLength={60}
-                          />
-                        </Field>
-                        <Field label="流量额度（GiB）">
-                          <Input
-                            type="number"
-                            name="quota_gib"
-                            defaultValue={100}
-                            required
-                            min={1}
-                            max={8388607}
-                          />
-                        </Field>
-                        {customKind === 'base' && <CycleFields value={customCycle} onChange={setCustomCycle} />}
-                        <Field label="套餐天数（永久 / 加流量卡忽略）">
-                          <Input
-                            type="number"
-                            name="days"
-                            disabled={customKind === 'addon' || !!customCycle.permanent}
-                            defaultValue={30}
-                            required
-                            min={1}
-                            max={365000}
-                          />
-                        </Field>
-                        <Field label="生成数量">
-                          <Input
-                            type="number"
-                            name="count"
-                            defaultValue={1}
-                            required
-                            min={1}
-                            max={100}
-                          />
-                        </Field>
-                        <Field label="兑换期限（天，0 为不限）">
-                          <Input
-                            type="number"
-                            name="valid_days"
-                            defaultValue={90}
-                            required
-                            min={0}
-                            max={365000}
-                          />
-                        </Field>
-                      </div>
-                      <Button type="submit" disabled={busy}>
-                        {busy ? '处理中…' : '生成卡密'}
-                        <Ticket />
-                      </Button>
-                    </form>
-                  </details>
-                  {codes.length > 0 && (
-                    <div className="issued">
-                      <p>
-                        新卡密 · {codes.length} 张{' '}
-                        <span className="small muted">
-                          刷新页面后无法再次查看
-                        </span>
-                      </p>
-                      <textarea
-                        readOnly
-                        aria-label="新生成的卡密"
-                        value={codes.join('\n')}
-                        rows={Math.min(8, codes.length + 1)}
-                      />
-                      <div className="actions">
-                        <Button
-                          variant="outline"
-                          onClick={() => void act(() => copy(codes.join('\n')))}
-                        >
-                          <Copy />
-                          复制全部
-                        </Button>
-                        <Button variant="outline" onClick={exportCodes}>
-                          <Download />
-                          下载卡密
-                        </Button>
-                        <Button variant="outline" onClick={() => void act(() => copy(codes.map(code => cardLink(code, location.origin)).join('\n')))}>复制兑换链接</Button>
-                      </div>
-                    </div>
-                  )}
-                </section>
-                <CardSearch
-                  onRevoke={async (id) => {
-                    await api('admin/revoke', { id });
-                    await loadAdmin();
-                  }}
-                />
-                <LoginDiagnosis />
-                <MailHistory />
-                <section className="section" id="admin-audit">
-                  <h2>
-                    操作记录 <span className="muted small">最近 100 条</span>
-                  </h2>
-                  <div className="audit-list">
-                    {admin?.audit.map((a, i) => (
-                      <div key={i}>
-                        <span>
-                          {a.actor} ·{' '}
-                          {(
-                            {
-                              'card.issue': '生成卡密',
-                              'card.redeem': '兑换卡密',
-                              'card.revoke': '作废卡密',
-                              'account.register': '注册账号',
-                              'account.password': '修改密码',
-                              'account.disable': '停用账号',
-                              'account.enable': '恢复账号',
-                              'account.reset_password': '重置密码',
-                              'plan.save': '更新套餐',
-                              'notice.save': '更新公告',
-                              'support.save': '更新联系方式',
-                            } as Record<string, string>
-                          )[a.action] || a.action}
-                        </span>
-                        <time className="small muted">{date(a.created)}</time>
-                      </div>
-                    ))}
-                  </div>
-                </section>
-              </>
-            )}
-            {view === 'admin' && me && !me.user.admin && (
-              <p className="message">此页面仅管理员可用，请返回「我的」。</p>
             )}
           </>
         )}
@@ -1027,6 +782,7 @@ function App() {
           </nav>
         </DockViewport>
       )}
+      <Toaster />
       <AlertDialog
         open={!!confirm}
         onOpenChange={(open) => {

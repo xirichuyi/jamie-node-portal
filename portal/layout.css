@@ -184,7 +184,8 @@ main.wide:is(
 }
 @media (max-width: 700px) {
   [data-slot='sheet-content'].user-detail-sheet {
-    width: 100vw;
+    /* 100vw includes the reserved scrollbar gutter and pushes the panel off-screen. */
+    width: 100%;
     max-width: none;
     padding: 20px;
   }
