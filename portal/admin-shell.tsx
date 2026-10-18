@@ -32,6 +32,13 @@ export function openUserSearch(q: string) {
   history.pushState(history.state, '', '#/admin_users?q=' + encodeURIComponent(q));
   window.dispatchEvent(new Event('hashchange'));
 }
+// Card codes, tails and redemption links go to the card ledger; anything else is a user search.
+const looksLikeCard = (q: string) =>
+  /[?&]code=/.test(q) || /^[0-9a-fA-F]{4,8}$/.test(q) || /^[0-9a-fA-F]{8}(-?[0-9a-fA-F]{8}){3}$/.test(q.replace(/\s/g, ''));
+function openCardSearch(q: string) {
+  history.pushState(history.state, '', '#/admin?tab=records&q=' + encodeURIComponent(q));
+  window.dispatchEvent(new Event('hashchange'));
+}
 export function AdminShell({
   view,
   navigate,
@@ -75,14 +82,15 @@ export function AdminShell({
           role="search"
           onSubmit={(e) => {
             e.preventDefault();
-            if (q.trim()) openUserSearch(q.trim());
+            const value = q.trim();
+            if (value) (looksLikeCard(value) ? openCardSearch : openUserSearch)(value);
             setQ('');
           }}
         >
           <Search size={15} aria-hidden="true" />
           <input
-            aria-label="快速查找用户"
-            placeholder="查找用户…"
+            aria-label="快速查找用户或卡密"
+            placeholder="查找用户或卡密…"
             value={q}
             maxLength={32}
             onChange={(e) => setQ(e.target.value)}

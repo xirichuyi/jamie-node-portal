@@ -4,6 +4,7 @@ import hashlib
 import json
 import re
 import time
+from urllib.parse import unquote
 from pathlib import Path
 from errors import DomainError
 from email_auth import email_address
@@ -52,8 +53,14 @@ class Operations:
 
     def cards(self, data):
         query = data.get('query', '')
-        if not isinstance(query, str) or len(query) > 100:
-            raise DomainError('请输入卡密、8 位尾号或用户名')
+        if not isinstance(query, str) or len(query) > 300:
+            raise DomainError('请输入卡密、尾号、兑换账号或备注')
+        # A pasted redemption link carries the full code in its fragment.
+        link = re.search(r'[?&]code=([A-Za-z0-9%-]+)', query)
+        if link:
+            query = unquote(link.group(1))
+        if len(query) > 100:
+            raise DomainError('请输入卡密、尾号、兑换账号或备注')
         normalized = query.strip().upper().replace('-', '').replace(' ', '')
         scope = data.get('scope', 'all')
         now = int(time.time())
@@ -81,14 +88,20 @@ class Operations:
             if re.fullmatch('[A-F0-9]{32}', normalized):
                 where.append('c.digest=?')
                 args.append(self.ledger.digest(normalized))
-            elif re.fullmatch('[A-F0-9]{8}', normalized):
-                where.append('(c.suffix=? OR a.username=?)')
-                args.extend([normalized, query.strip().lower()])
             else:
-                # Partial username/email, or the admin's own recipient memo.
-                where.append("(a.username LIKE ? ESCAPE '\\' OR c.note LIKE ? ESCAPE '\\')")
+                # Partial username/email, card name or the admin's own recipient memo.
                 memo = query.strip().replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_')
-                args.extend(['%' + memo.lower() + '%', '%' + memo + '%'])
+                clauses = [
+                    "a.username LIKE ? ESCAPE '\\'",
+                    "c.note LIKE ? ESCAPE '\\'",
+                    "c.label LIKE ? ESCAPE '\\'",
+                ]
+                args.extend(['%' + memo.lower() + '%', '%' + memo + '%', '%' + memo + '%'])
+                # Only the last 8 characters are stored; 4+ hex characters match within them.
+                if re.fullmatch('[A-F0-9]{4,8}', normalized):
+                    clauses.append('c.suffix LIKE ?')
+                    args.append('%' + normalized + '%')
+                where.append('(' + ' OR '.join(clauses) + ')')
         clause = ' AND '.join(where)
         join = (
             ' FROM cards c LEFT JOIN accounts a ON a.id=c.redeemed_by'

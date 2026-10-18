@@ -169,6 +169,23 @@ class AdminToolTests(unittest.TestCase):
         self.app.ledger.redeem(self.uid, code)
         self.assertEqual(self.app.users.detail(self.uid)['member']['final_expires'], preview['after_expires'])
 
+    def test_card_search_accepts_links_partial_tails_and_names(self):
+        code = self.app.ledger.issue(self.admin, '标准月卡', 10, 30, 1, 30, note='张三')[0]['code']
+        self.app.ledger.issue(self.admin, '季卡', 10, 90, 1, 30)
+
+        def found(q):
+            return self.app.operations.cards({'query': q})['total']
+
+        for query in (code, code.lower(), code.replace('-', ''), ' ' + code + ' ', code[-8:],
+                      code[-4:].lower(), '标准月卡', '张三',
+                      'https://sub.chuyi.uk/#/redeem?code=' + code):
+            self.assertEqual(found(query), 1, query)
+        # Only the tail is stored; the head of a code cannot match by design.
+        self.assertEqual(found(code[:8]) if code[:8] not in code[-8:] else 0, 0)
+        self.assertEqual(found('%'), 0)
+        with self.assertRaises(DomainError):
+            self.app.operations.cards({'query': 'x' * 301})
+
 
 if __name__ == '__main__':
     unittest.main()

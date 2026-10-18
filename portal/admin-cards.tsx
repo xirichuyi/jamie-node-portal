@@ -369,8 +369,33 @@ export function CardLedger({
   batch: BatchKey | null;
   onClearBatch: () => void;
 }) {
-  const [query, setQuery] = useState('');
-  const [applied, setApplied] = useState('');
+  const initialQuery = () =>
+    typeof location === 'undefined' ? '' : new URLSearchParams(location.hash.split('?')[1] || '').get('q') || '';
+  const [query, setQuery] = useState(initialQuery);
+  const [applied, setApplied] = useState(initialQuery);
+  useEffect(() => {
+    const sync = () => {
+      const q = initialQuery();
+      if (q) {
+        setQuery(q);
+        setApplied(q);
+        setScope('all');
+        setPage(1);
+      }
+    };
+    window.addEventListener('hashchange', sync);
+    return () => window.removeEventListener('hashchange', sync);
+  }, []);
+  // Search as the admin types; the button stays for keyboard users.
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (query.trim() !== applied) {
+        setApplied(query.trim());
+        setPage(1);
+      }
+    }, 350);
+    return () => clearTimeout(timer);
+  }, [query]);
   const [scope, setScope] = useState('all');
   const [page, setPage] = useState(1);
   const [version, setVersion] = useState(0);
@@ -430,11 +455,11 @@ export function CardLedger({
         >
           <Input
             aria-label="搜索卡密"
-            placeholder="卡密 / 尾号 / 兑换账号 / 备注"
+            placeholder="卡密 / 尾号 / 兑换链接 / 账号 / 备注 / 卡名"
             autoComplete="off"
             spellCheck={false}
             value={query}
-            maxLength={100}
+            maxLength={300}
             onChange={(e) => setQuery(e.target.value)}
           />
           <Button variant="outline">搜索</Button>
@@ -527,7 +552,28 @@ export function CardLedger({
             </table>
           </div>
           {!data.cards.length && (
-            <p className="empty muted">没有符合条件的卡密。可以换个关键词或切换状态。</p>
+            <div className="empty search-help">
+              <p>没有找到符合条件的卡密。</p>
+              {scope !== 'all' && (
+                <p className="small muted">
+                  当前只在「{scopes.find(([id]) => id === scope)?.[1]}」中搜索。
+                  <button className="text-link" onClick={() => { setScope('all'); setPage(1); }}>
+                    在全部状态中搜索 →
+                  </button>
+                </p>
+              )}
+              {batch && (
+                <p className="small muted">
+                  当前只在所选批次中搜索。
+                  <button className="text-link" onClick={onClearBatch}>在全部卡密中搜索 →</button>
+                </p>
+              )}
+              {scope === 'all' && !batch && /^[0-9a-fA-F-]{8,}$/.test(applied) && applied.replace(/-/g, '').length < 32 && (
+                <p className="small muted">
+                  出于安全，系统只保存卡密的最后 8 位：请输入完整卡密，或卡密末尾的 4–8 位，卡密开头或中间的部分无法搜索。
+                </p>
+              )}
+            </div>
           )}
           <div className="user-pagination">
             <Button variant="ghost" disabled={data.page <= 1} onClick={() => setPage(data.page - 1)}>
