@@ -134,14 +134,17 @@ class Payments:
                 or remote.get('token') not in ('USDT', 'USDT-BSC')
                 or remote.get('status') not in ('pending', 'confirming', 'completed', 'expired')):
             raise DomainError('支付订单信息不匹配，请联系管理员核对')
-        if remote['status'] == 'completed':
+        if remote.get('network') or remote.get('address') or remote['status'] == 'completed':
             network = remote.get('network', '')
             address = remote.get('address', '')
             expected = self.config['wallets'].get(network)
             if network in ('binance', 'ethereum', 'polygon'):
                 address, expected = address.lower(), (expected or '').lower()
-            if not expected or address != expected or not remote.get('tx_hash') or not remote.get('paid_at'):
+            if not expected or address != expected:
                 raise DomainError('收款链或收款地址未通过核对，请联系管理员')
+        if remote['status'] == 'completed':
+            if not remote.get('tx_hash') or not remote.get('paid_at'):
+                raise DomainError('链上到账信息待核对，请联系管理员')
             if micros(remote.get('pay_amount')) < row['amount']:
                 raise DomainError('到账金额不足，请联系管理员核对')
 

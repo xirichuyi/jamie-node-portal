@@ -58,6 +58,8 @@ class Gateway:
         return self.request('payments/' + payment_id)
 
     def create(self, order, return_url):
-        return self.request('payments', {'merchant_order_id': order['id'],
-                                        'amount': amount_text(order['amount']),
-                                        'success_url': return_url, 'cancel_url': return_url})
+        payload = {'merchant_order_id': order['id'], 'amount': amount_text(order['amount']),
+                   'success_url': return_url, 'cancel_url': return_url}
+        if len(self.config.get('wallets', {})) == 1:
+            payload['network'] = next(iter(self.config['wallets']))
+        return self.request('payments', payload)

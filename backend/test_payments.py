@@ -107,6 +107,13 @@ class PaymentTests(unittest.TestCase):
         self.complete(order)
         self.assertEqual(self.p.row(order['id'])['status'], 'fulfilled')
 
+    def test_wrong_wallet_is_rejected_before_showing_checkout(self):
+        self.p.gateway.create.side_effect = lambda row, url: self.remote(row, address='0x' + 'b' * 40)
+        order = self.create()
+        self.assertIsNone(order['checkout_url'])
+        self.assertIsNone(self.p.row(order['id'])['gateway_id'])
+        self.assertIn('收款', order['error'])
+
     def test_guest_claim_uses_secret_and_can_register_once(self):
         order = self.create(guest=True)
         self.complete(order)
