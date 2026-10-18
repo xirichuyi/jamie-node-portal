@@ -9,6 +9,8 @@ from validation import text
 from passwords import hash_password
 from routes_support import ticket_request
 import mail_history
+from email_auth import email_address
+from email_templates import service_email
 
 
 def card_plan(app, data):
@@ -135,6 +137,34 @@ def dispatch(ctx):
     if not write and path == '/api/admin/batches':
         with app.ledger.connect() as db:
             return ctx.reply(200, {'batches': app.features.batches(db, int(time.time()), 100)})
+    if path == '/api/admin/staff-alerts':
+        if write:
+            app.limit('user-action:' + account['id'], 60, 600)
+            result = app.staff_notifications.settings(data.get('ticket_email'))
+            with app.ledger.transaction() as db:
+                app.ledger.audit(db, account['id'], 'staff.alerts', '1')
+            return ctx.reply(200, result)
+        return ctx.reply(200, app.staff_notifications.settings())
+    if write and path == '/api/admin/mail-test':
+        app.limit('mail-test:' + account['id'], 5, 600)
+        if not app.email_auth.enabled:
+            raise DomainError('邮件服务尚未配置')
+        to = email_address(data.get('to'))
+        app.email_auth.deliver(
+            to,
+            service_email(
+                '测试邮件',
+                '这是一封来自 Jamie-Node 后台的测试邮件。收到说明邮件服务配置正常。\n\n'
+                '邮件服务接收不代表一定进入收件箱，如果没看到，请检查垃圾邮件文件夹。',
+                app.config['origin'],
+                footer='由管理员在后台手动发送。',
+                eyebrow='系统测试',
+            ),
+            'mail-test-' + secrets.token_hex(8),
+        )
+        with app.ledger.transaction() as db:
+            app.ledger.audit(db, account['id'], 'mail.test', '1')
+        return ctx.reply(200, {'ok': True})
     if not write and path == '/api/admin/badges':
         return ctx.reply(200, app.users.badges())
     if not write and path == '/api/admin/audit':

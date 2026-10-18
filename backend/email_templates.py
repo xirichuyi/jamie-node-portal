@@ -4,13 +4,61 @@ from html import escape
 import re
 
 
-def service_email(title, message, origin):
-    url = origin.rstrip('/') + '/#/sessions'
-    text = f'Jamie-Node · {title}\n\n{message}\n\n{origin}/\n\n可在「邮箱与账号安全」关闭邮件提醒：{url}'
-    html = (f'<div style="font-family:sans-serif;color:#29332e;padding:24px;max-width:520px">'
-            f'<p>Jamie-Node</p><h2>{escape(title)}</h2><p>{escape(message)}</p>'
-            f'<p><a href="{escape(origin, quote=True)}/">打开 Jamie-Node</a></p>'
-            f'<p><a href="{escape(url, quote=True)}">管理邮件提醒</a></p></div>')
+FONT = "-apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Microsoft YaHei',Arial,sans-serif"
+
+
+def service_email(title, message, origin, *, action=None, details=(), footer=None, eyebrow='服务通知'):
+    """Branded notification. Text-only wordmark (no remote images); every value is escaped.
+
+    message may span several paragraphs separated by blank lines; details are (label, value) rows.
+    """
+    origin = origin.rstrip('/')
+    manage = origin + '/#/sessions'
+    label, path = action or ('打开 Jamie-Node', '/')
+    link = origin + path
+    footer = footer or '可在「邮箱与账号安全」关闭这类邮件提醒。'
+    paragraphs = [p.strip() for p in str(message).split('\n\n') if p.strip()]
+    rows = [(str(k), str(v)) for k, v in details]
+    text = '\n\n'.join(
+        [f'Jamie-Node · {title}', *paragraphs]
+        + (['\n'.join(f'{k}：{v}' for k, v in rows)] if rows else [])
+        + [f'{label}：{link}', f'{footer}\n管理邮件提醒：{manage}']
+    )
+    body = ''.join(
+        f'<p style="margin:0 0 14px;font-size:15px;line-height:25px;color:#4f5b55;">'
+        f'{escape(p).replace(chr(10), "<br>")}</p>'
+        for p in paragraphs
+    )
+    table = ''
+    if rows:
+        cells = ''.join(
+            f'<tr><td style="padding:8px 0;font-size:13px;color:#7b847f;white-space:nowrap;vertical-align:top;">{escape(k)}</td>'
+            f'<td style="padding:8px 0 8px 16px;font-size:14px;color:#29332e;text-align:right;">{escape(v)}</td></tr>'
+            for k, v in rows
+        )
+        table = (
+            '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" '
+            f'style="margin:6px 0 18px;border-top:1px solid #e3e8e4;border-bottom:1px solid #e3e8e4;">{cells}</table>'
+        )
+    html = f"""<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light"><title>Jamie-Node · {escape(title)}</title></head>
+<body style="margin:0;padding:0;background-color:#f8f7f4;color:#29332e;font-family:{FONT};">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#f8f7f4;">
+<tr><td align="center" style="padding:36px 16px;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:520px;">
+<tr><td style="padding:0 8px 20px;font-size:20px;line-height:28px;font-weight:600;letter-spacing:-0.6px;color:#29332e;">Jamie<span style="color:#64786d;">-Node</span></td></tr>
+<tr><td style="padding:30px 24px;background-color:#ffffff;border:1px solid #dce3de;border-radius:20px;">
+<p style="margin:0 0 10px;font-size:12px;line-height:18px;letter-spacing:1.5px;color:#6f8177;">{escape(eyebrow)}</p>
+<h1 style="margin:0 0 16px;font-size:24px;line-height:34px;font-weight:600;color:#29332e;">{escape(title)}</h1>
+{body}{table}
+<table role="presentation" cellpadding="0" cellspacing="0" style="margin-top:6px;"><tr><td style="border-radius:10px;background-color:#405e50;">
+<a href="{escape(link, quote=True)}" style="display:inline-block;padding:11px 20px;font-size:14px;font-weight:600;color:#ffffff;text-decoration:none;">{escape(label)} →</a>
+</td></tr></table>
+</td></tr>
+<tr><td style="padding:20px 8px 0;font-size:12px;line-height:20px;color:#87918a;">{escape(footer)}<br>
+<a href="{escape(manage, quote=True)}" style="color:#61786a;">管理邮件提醒</a></td></tr>
+</table></td></tr></table></body></html>"""
     return {'subject': 'Jamie-Node · ' + title, 'text': text, 'html': html}
 
 
