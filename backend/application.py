@@ -17,6 +17,7 @@ from passwords import PASSWORD_COST as PASSWORD_COST
 from passwords import hash_password, verify_password
 from email_auth import EmailAuth, email_address
 from ticket_notifications import TicketNotifications
+from subscription_notifications import SubscriptionNotifications
 from account_deletion import AccountDeletion
 
 from http_types import HttpError
@@ -63,6 +64,7 @@ class App:
         self.operations = Operations(self)
         self.email_auth = EmailAuth(self)
         self.ticket_notifications = TicketNotifications(self)
+        self.subscription_notifications = SubscriptionNotifications(self)
         self.account_deletion = AccountDeletion(self)
 
     def limit(self, key, count, window):

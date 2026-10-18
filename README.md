@@ -16,7 +16,7 @@
 | `backend/routes_*.py` | 认证、账号、订阅、支持、管理五组路由 |
 | `backend/entitlements.py`、`package_ledger.py`、`cycles.py` | 兑换事务、账本、周期结算、同步 outbox |
 | `backend/panel.py`、`node_catalog.py`、`node_sync.py` | 面板通信、动态节点目录、成员同步 |
-| `backend/email_auth.py`、`ticket_notifications.py`、`account_deletion.py` | 邮箱认证、工单邮件、删除 |
+| `backend/email_auth.py`、`ticket_notifications.py`、`subscription_notifications.py`、`account_deletion.py` | 邮箱认证、工单/套餐邮件、删除 |
 | `backend/admin_users.py`、`operations.py`、`features.py` | 管理查询、运行诊断、自助功能 |
 | `deploy/subscription_adapter.py` | 订阅格式及额度元数据适配，随版本部署 |
 | `deploy/` | 部署、备份、探测、节点接入和验收工具 |
@@ -46,7 +46,12 @@
 ## 账号与数据边界
 
 - 邮箱找回可用；换绑需身份验证及邮箱验证码，成功后撤销旧会话/恢复凭据。
-  密码重置不能重新启用被停用账号。工单邮件需用户选择接收；服务商接受不等于送达。
+  密码重置不能重新启用被停用账号。工单回复、流量不足和套餐到期邮件默认开启，保留已有的工单退订设置；用户可在账号页面分别关闭。
+- 流量邮件在有效套餐合计剩余不超过 10% 时触发，基础套餐到期前 3 天触发到期邮件。
+  每 5 分钟检查，仅发送至已验证邮箱；流量判断要求 120 秒内的有效账本采样。
+  同一套餐组合/额度/重置周期或同一套餐到期时间只提醒一次；续费、补量后发送前重新校验。
+  邮件队列持久化、失败退避重试（最多 5 次、23 小时内），换绑、注销或关闭提醒会取消待发邮件。
+  使用现有邮件服务配置；服务商接受不等于送达。邮件不包含节点凭据或完整订阅链接。
 - “重置订阅链接”不撤销已下载的节点凭据；“重置连接凭据”是另一操作。
   两者均需重新导入，不能混淆安全承诺。
 - 用户自删需密码和账号确认；管理员可确认删除普通账号，管理员账号受保护。

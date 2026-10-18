@@ -103,8 +103,7 @@ class FeatureTests(unittest.TestCase):
                 (self.uid, 'test@example.com', int(time.time())),
             )
         notifications = self.app.ticket_notifications
-        self.assertFalse(notifications.preferences(self.account)['ticket_email'])
-        notifications.preferences(self.account, True)
+        self.assertTrue(notifications.preferences(self.account)['ticket_email'])
         tid = self.f.ticket_write(
             self.account, {'subject': 'test', 'body': 'private body', 'category': 'other'}
         )['id']

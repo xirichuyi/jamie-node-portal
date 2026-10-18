@@ -173,7 +173,7 @@ class EmailAuth:
             else None
         )
         challenge = self.check(email, self.change_purpose(account, 'change_new'), new_code)
-        with self.app.ledger.transaction() as db:
+        with self.app.account_lifecycle_lock, self.app.ledger.transaction() as db:
             current = db.execute(
                 'SELECT a.username,a.password,m.disabled FROM accounts a JOIN members m ON m.id=a.id WHERE a.id=?',
                 (account['id'],),
@@ -203,6 +203,10 @@ class EmailAuth:
             self.app.ledger.audit(db, account['id'], 'account.email_changed', account['id'])
             db.execute(
                 "UPDATE ticket_mail_queue SET status='cancelled' WHERE account_id=? AND status='pending'",
+                (account['id'],),
+            )
+            db.execute(
+                "UPDATE subscription_mail_queue SET status='cancelled' WHERE account_id=? AND status='pending'",
                 (account['id'],),
             )
 

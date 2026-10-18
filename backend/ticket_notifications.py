@@ -1,4 +1,4 @@
-"""Opt-in support notifications. Durable bounded retries; no message body in emails."""
+"""Default-on support notifications with explicit opt-out and bounded retries."""
 
 import time
 
@@ -27,7 +27,7 @@ class TicketNotifications:
             """)
 
     def preferences(self, account, enabled=None):
-        with self.app.ledger.transaction() as db:
+        with self.app.account_lifecycle_lock, self.app.ledger.transaction() as db:
             verified = db.execute(
                 'SELECT email FROM verified_emails WHERE account_id=?', (account['id'],)
             ).fetchone()
@@ -50,13 +50,15 @@ class TicketNotifications:
                 (account['id'],),
             ).fetchone()
         return {
-            'ticket_email': bool(row and row[0]),
+            'ticket_email': bool(row[0]) if row else True,
             'available': bool(verified and self.app.email_auth.enabled),
         }
 
     def enqueue(self, db, uid, mid):
-        if db.execute(
-            'SELECT 1 FROM notification_preferences WHERE account_id=? AND ticket_email=1', (uid,)
+        if not db.execute(
+            'SELECT 1 FROM notification_preferences WHERE account_id=? AND ticket_email=0', (uid,)
+        ).fetchone() and db.execute(
+            'SELECT 1 FROM verified_emails WHERE account_id=?', (uid,)
         ).fetchone():
             db.execute(
                 'INSERT OR IGNORE INTO ticket_mail_queue(message_id,account_id,created) VALUES(?,?,?)',
@@ -91,8 +93,8 @@ class TicketNotifications:
                     """SELECT v.email FROM verified_emails v
                     JOIN accounts a ON a.id=v.account_id
                     JOIN members m ON m.id=a.id
-                    JOIN notification_preferences p ON p.account_id=a.id
-                    WHERE a.id=? AND m.disabled=0 AND p.ticket_email=1""",
+                    LEFT JOIN notification_preferences p ON p.account_id=a.id
+                    WHERE a.id=? AND m.disabled=0 AND m.deleting=0 AND COALESCE(p.ticket_email,1)=1""",
                     (item['account_id'],),
                 ).fetchone()
                 unread = db.execute(

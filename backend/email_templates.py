@@ -4,6 +4,16 @@ from html import escape
 import re
 
 
+def service_email(title, message, origin):
+    url = origin.rstrip('/') + '/#/sessions'
+    text = f'Jamie-Node · {title}\n\n{message}\n\n{origin}/\n\n可在「邮箱与账号安全」关闭邮件提醒：{url}'
+    html = (f'<div style="font-family:sans-serif;color:#29332e;padding:24px;max-width:520px">'
+            f'<p>Jamie-Node</p><h2>{escape(title)}</h2><p>{escape(message)}</p>'
+            f'<p><a href="{escape(origin, quote=True)}/">打开 Jamie-Node</a></p>'
+            f'<p><a href="{escape(url, quote=True)}">管理邮件提醒</a></p></div>')
+    return {'subject': 'Jamie-Node · ' + title, 'text': text, 'html': html}
+
+
 def verification_email(purpose, code):
     if purpose not in ('register', 'reset', 'change') or not re.fullmatch(r'[0-9]{6}', code):
         raise ValueError('Invalid verification email')

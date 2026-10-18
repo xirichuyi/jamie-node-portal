@@ -55,6 +55,10 @@ class AccountDeletion:
                 "UPDATE ticket_mail_queue SET status='cancelled' WHERE account_id=? AND status='pending'",
                 (target_id,),
             )
+            db.execute(
+                "UPDATE subscription_mail_queue SET status='cancelled' WHERE account_id=? AND status='pending'",
+                (target_id,),
+            )
         app.wake.set()
         return {'pending': True}
 
@@ -138,6 +142,8 @@ class AccountDeletion:
                 'recovery_codes',
                 'verified_emails',
                 'notification_preferences',
+                'subscription_mail_queue',
+                'subscription_mail_preferences',
                 'usage_baselines',
                 'usage_days',
                 'account_deletions',

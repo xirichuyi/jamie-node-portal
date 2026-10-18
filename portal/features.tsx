@@ -918,7 +918,7 @@ export function Tickets({
         }
       />
       {work.feedback}
-      {!staff && <TicketEmailPreference />}
+      {!staff && <NotificationPreferences ticketOnly />}
       <div
         className={
           'feature-split ticket-workspace ' +
@@ -1122,14 +1122,22 @@ type Session = {
   seen: number;
   current: boolean;
 };
-function TicketEmailPreference() {
-  const { data, reload } = useData<{ ticket_email: boolean; available: boolean }>('notifications');
+export function NotificationPreferences({ ticketOnly = false }: { ticketOnly?: boolean }) {
+  type Preference = 'ticket_email' | 'traffic_email' | 'expiry_email';
+  const { data, reload } = useData<Record<Preference, boolean> & { available: boolean }>('notifications');
   const work = useWork();
+  const options: [Preference, string][] = ticketOnly ? [['ticket_email', '工单有新回复时邮件提醒']] : [
+    ['traffic_email', '可用流量剩余不超过 10% 时邮件提醒'],
+    ['expiry_email', '基础套餐到期前 3 天邮件提醒'],
+    ['ticket_email', '工单有新回复时邮件提醒'],
+  ];
   return <div className="notification-preference">
-    <label><input type="checkbox" checked={!!data?.ticket_email} disabled={!data || work.busy || (!data.available && !data.ticket_email)} onChange={e => {
+    {!ticketOnly && <h2>邮件提醒</h2>}
+    {options.map(([field, label]) => <label key={field} style={{ display: 'block' }}><input type="checkbox" checked={!!data?.[field]} disabled={!data || work.busy} onChange={e => {
       const enabled = e.target.checked;
-      void work.run(async () => { await api('notifications', { ticket_email: enabled }); await reload(); });
-    }} /> 有新回复时通过邮件提醒我</label>
+      void work.run(async () => { await api('notifications', { [field]: enabled }); await reload(); });
+    }} /> {label}</label>)}
+    <p className="small muted">默认开启，可随时关闭；只发送到已验证邮箱。同一套餐或流量周期不会重复提醒。</p>
     {data && !data.available && <small className="muted">需绑定邮箱且邮件服务可用。</small>}
     {work.feedback}
   </div>;
@@ -1205,6 +1213,7 @@ export function Sessions() {
       />
       {work.feedback}
       {data && <ChangeEmail email={data.email || ''} />}
+      <NotificationPreferences />
       <div className="feature-split">
         <section className="section">
           <h2>网站登录会话</h2>

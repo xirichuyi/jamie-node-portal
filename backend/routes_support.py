@@ -29,14 +29,15 @@ def dispatch(ctx):
     if path == '/api/tickets':
         return ticket_request(ctx)
     if path == '/api/notifications':
-        if write and type(data.get('ticket_email')) is not bool:
+        fields = ('ticket_email', *app.subscription_notifications.fields)
+        if write and (not data or any(k not in fields or type(v) is not bool for k, v in data.items())):
             raise DomainError('无效提醒设置')
-        return ctx.reply(
-            200,
-            app.ticket_notifications.preferences(
-                account, data.get('ticket_email') if write else None
-            ),
-        )
+        with app.account_lifecycle_lock:
+            preferences = app.ticket_notifications.preferences(
+                account, data.get('ticket_email') if write else None)
+            changes = {k: v for k, v in data.items() if k in app.subscription_notifications.fields} if write else None
+            preferences.update(app.subscription_notifications.preferences(account, changes))
+        return ctx.reply(200, preferences)
     if write and path == '/api/tickets/read':
         app.features.ticket_read(account, data.get('id'), data.get('message_id'))
         return ctx.reply(200, {'ok': True})

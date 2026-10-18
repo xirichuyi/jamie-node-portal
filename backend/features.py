@@ -462,11 +462,12 @@ class Features:
 
     def loop(self):
         while True:
-            try:
-                self.collect()
-                self.app.ticket_notifications.deliver_pending()
-            except Exception as exc:
-                print('Feature collector:', type(exc).__name__, flush=True)
+            for task in (self.collect, self.app.ticket_notifications.deliver_pending,
+                         self.app.subscription_notifications.run):
+                try:
+                    task()
+                except Exception as exc:
+                    print('Feature collector:', type(exc).__name__, flush=True)
             time.sleep(300)
 
     def service_status(self):
