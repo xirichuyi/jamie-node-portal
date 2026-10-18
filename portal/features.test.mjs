@@ -112,7 +112,7 @@ test('admin support exposes card lookup and credential-free login diagnostics', 
   const ledger = renderToStaticMarkup(
     React.createElement(cardAdmin.CardLedger, { batch: null, onClearBatch: () => {} }),
   );
-  assert.match(ledger, /卡密 \/ 尾号 \/ 兑换账号 \/ 备注/);
+  assert.match(ledger, /卡密 \/ 尾号 \/ 兑换链接 \/ 账号 \/ 备注 \/ 卡名/);
   assert.doesNotMatch(ledger, /最近 500 张/);
   const diagnosis = renderToStaticMarkup(
     React.createElement(support.LoginDiagnosis),
