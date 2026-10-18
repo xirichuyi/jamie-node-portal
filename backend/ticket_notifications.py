@@ -2,6 +2,7 @@
 
 import time
 
+from email_templates import service_email
 from errors import DomainError
 
 
@@ -97,6 +98,10 @@ class TicketNotifications:
                     WHERE a.id=? AND m.disabled=0 AND m.deleting=0 AND COALESCE(p.ticket_email,1)=1""",
                     (item['account_id'],),
                 ).fetchone()
+                subject = (db.execute(
+                    'SELECT t.subject FROM ticket_messages m JOIN support_tickets t ON t.id=m.ticket_id WHERE m.id=?',
+                    (item['message_id'],),
+                ).fetchone() or ['你的工单'])[0]
                 unread = db.execute(
                     """SELECT 1 FROM ticket_messages m LEFT JOIN ticket_reads r
                     ON r.ticket_id=m.ticket_id AND r.account_id=? WHERE m.id=? AND m.id>COALESCE(r.message_id,0)""",
@@ -112,11 +117,15 @@ class TicketNotifications:
                     'UPDATE ticket_mail_queue SET attempts=attempts+1,next_attempt=? WHERE message_id=?',
                     (now + min(3600, 300 * 2 ** item['attempts']), item['message_id']),
                 )
-            content = {
-                'subject': 'Jamie-Node · 工单有新回复',
-                'text': '你的工单有新回复。登录 Jamie-Node，在「我的 → 我的工单」查看。\nhttps://sub.chuyi.uk/\n\n可在工单页关闭邮件提醒。',
-                'html': '<div style="background:#f8f7f4;padding:32px 20px;color:#29332e;font-family:-apple-system,BlinkMacSystemFont,sans-serif"><div style="max-width:480px;margin:auto"><p style="color:#405e50">Jamie-Node</p><h2>工单有新回复</h2><p>前往「我的 → 我的工单」查看回复。</p><p><a style="color:#405e50" href="https://sub.chuyi.uk/">打开 Jamie-Node →</a></p><p style="font-size:12px;color:#738078">可在工单页关闭邮件提醒。</p></div></div>',
-            }
+            content = service_email(
+                '工单有新回复',
+                f'你的工单「{subject}」收到了管理员回复。\n\n'
+                '回复内容请登录后在「我的 → 我的工单」查看；邮件不包含回复正文，避免敏感信息外泄。',
+                self.app.config['origin'],
+                action=('查看回复', '/#/tickets'),
+                footer='你开启了工单回复邮件提醒，可在工单页关闭。',
+                eyebrow='工单提醒',
+            )
             try:
                 self.app.email_auth.deliver(
                     recipient['email'], content, 'ticket-reply-' + str(item['message_id'])

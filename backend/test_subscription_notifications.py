@@ -182,8 +182,9 @@ class SubscriptionNotificationTests(unittest.TestCase):
 
     def test_email_escapes_package_labels(self):
         content = service_email('提醒', '<img src=x onerror=alert(1)>', 'https://example.test')
-        self.assertNotIn('<img', content['html'])
+        self.assertNotIn('<img src=x', content['html'])
         self.assertIn('&lt;img', content['html'])
+        self.assertEqual(content['html'].count('<img'), 1)  # Only the brand logo.
         self.assertIn('/#/sessions', content['text'])
 
     def test_account_deletion_cancels_and_erases_reminders(self):
