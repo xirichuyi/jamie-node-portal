@@ -1,0 +1,41 @@
+.install-banner { display: flex; align-items: center; gap: 10px; padding: 12px; margin-bottom: 22px; border: 1px solid var(--border); border-radius: 14px; background: var(--card); }
+.install-banner > img { border-radius: 10px; flex-shrink: 0; }
+.install-banner > div { flex: 1; min-width: 0; }
+.install-banner strong { font-size: .875rem; font-weight: 550; }
+.install-banner p, .install-hint { color: var(--muted-foreground); font-size: .75rem; line-height: 1.6; }
+.install-banner [data-slot='button'] { padding-inline: 12px; }
+.install-dismiss { display: grid; place-items: center; min-width: 32px; min-height: 40px; border: 0; background: none; color: var(--muted-foreground); }
+.install-entry { margin-bottom: 20px; justify-self: start; }
+.install-entry, .install-banner { grid-column: 1 / -1; }
+.install-dialog { padding: 24px; gap: 16px; border-radius: 18px; }
+.install-app-icon { border-radius: 14px; }
+.install-steps { list-style: decimal; padding-left: 20px; margin: 4px 0; font-size: .875rem; line-height: 1.8; }
+.install-steps li + li { margin-top: 12px; }
+.install-steps svg { display: inline; vertical-align: -3px; margin-inline: 4px; color: var(--brand-accent); }
+/* Let native scrolling and compositor animations follow the display cadence.
+   Avoid re-blurring every card as content moves beneath it on touch devices. */
+@media (pointer: coarse) {
+  .balance, .surface, .region-card, .notice-card, .compact-plan, .plan-card,
+  .contact-box, .contact-inline, .profile-menu, .profile-summary, .redeem-banner,
+  .download-panel, .auth, .connection-panel, .node-panel, .dock {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    background-color: var(--card);
+  }
+  [data-slot='dialog-overlay'], [data-slot='alert-dialog-overlay'] {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    background: rgb(0 0 0 / 20%);
+  }
+  .dock button { transition: transform 160ms ease-out; }
+  .dock button:hover { transform: none; }
+  .dock button:active { transform: scale(.96); }
+  main { animation: none; }
+}
+@media (display-mode: standalone) {
+  .brand { top: calc(20px + env(safe-area-inset-top)); }
+  main, main.wide { padding-top: calc(108px + env(safe-area-inset-top)); }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
+}

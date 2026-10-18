@@ -22,6 +22,14 @@ const support = await vite.ssrLoadModule('/portal/admin-support.tsx');
 const cards = await vite.ssrLoadModule('/portal/card-entry.tsx');
 const payments = await vite.ssrLoadModule('/portal/payments.tsx');
 const cardAdmin = await vite.ssrLoadModule('/portal/admin-cards.tsx');
+const installGuide = await vite.ssrLoadModule('/portal/install.tsx');
+void test('install guidance recognizes iPad desktop UA and stays hidden on excluded pages', () => {
+  assert.equal(installGuide.installPlatform('Mozilla iPhone', 5), 'ios');
+  assert.equal(installGuide.installPlatform('Mozilla Macintosh Safari', 5), 'ios');
+  assert.equal(installGuide.installPlatform('Mozilla Macintosh Safari', 0), 'desktop');
+  assert.equal(installGuide.installPlatform('Mozilla Android Chrome', 5), 'android');
+  assert.equal(renderToStaticMarkup(React.createElement(installGuide.InstallGuide, { visible: false, promote: true })), '');
+});
 void test('payment purchase requires an explicit user action and orders show confirmation status', () => {
   const button = renderToStaticMarkup(React.createElement(payments.PurchaseButton, { planId: 'test', label: '测试套餐', price: 3000000, navigate: () => {} }));
   assert.match(button, /购买套餐/);

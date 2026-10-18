@@ -10,6 +10,7 @@ import { createRoot } from 'react-dom/client';
 import { DockViewport } from './dock-viewport';
 import { AuthFlow } from './auth';
 import { OrdersPage } from './payments';
+import { InstallGuide } from './install';
 import { captureCardLink, pendingCard } from './card-entry';
 import { ruleLabel, FOREVER } from './cycles';
 const UserManager = React.lazy(() =>
@@ -71,6 +72,7 @@ import './features.css';
 import './layout.css';
 import './admin.css';
 import './payments.css';
+import './mobile.css';
 import {
   Dashboard,
   AccountHub,
@@ -402,6 +404,7 @@ function App() {
           (me?.user.admin && adminViews.includes(view) ? ' admin-mode' : '')
         }
       >
+        <InstallGuide visible={loaded && !me?.user.must_change && !isAuthenticationView(view, !!me) && ['home', 'plans', 'guide', 'account'].includes(view)} promote={['home', 'plans'].includes(view)} />
         {loaded && tabFor(view) !== view && !me?.user.must_change && !(me?.user.admin && adminViews.includes(view)) && (
           <button className="back-link" onClick={back}>
             <ArrowLeft size={17} />

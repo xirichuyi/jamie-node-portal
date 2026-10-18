@@ -110,6 +110,10 @@ new = '''    # Jamie-Node portal: subscriptions above retain their existing adap
         proxy_connect_timeout 3s;
         proxy_buffering off;
     }
+    location = /manifest.webmanifest {
+        types { application/manifest+json webmanifest; }
+        try_files $uri =404;
+    }
     location /assets/ {
         set $jamie_cache_control "public, max-age=31536000, immutable";
         gzip on;
