@@ -75,14 +75,15 @@ class SubscriptionNotifications:
             add('traffic_email', identity, '可用流量即将耗尽' if remaining else '可用流量已耗尽',
                 f'当前有效套餐合计剩余 {remaining:.2f} GiB，已不超过总额度的 10%。'
                 '请登录查看用量，按需兑换流量包或续费。周期套餐以页面显示的重置时间为准。')
-        for p in packages:
-            if p['kind'] not in ('base', 'transition') or p['permanent']:
-                continue
-            if p['expires'] - now <= 3 * 86400:
-                date = datetime.fromtimestamp(p['expires'], ZoneInfo('Asia/Shanghai')).strftime('%Y-%m-%d %H:%M')
-                add('expiry_email', [p['id'], p['expires']], '套餐即将到期',
-                    f'你的「{p["label"]}」套餐将于 {date}（北京时间）到期。'
-                    '本提醒仅针对这个套餐；其他套餐按各自有效期继续生效。请登录查看并按需续费。')
+        # Renewals queue after each other, so only the package that ends service matters.
+        base = [p for p in packages if p['kind'] in ('base', 'transition')]
+        if base and not any(p['permanent'] for p in base):
+            last = max(base, key=lambda p: p['expires'])
+            if last['expires'] - now <= 3 * 86400:
+                date = datetime.fromtimestamp(last['expires'], ZoneInfo('Asia/Shanghai')).strftime('%Y-%m-%d %H:%M')
+                add('expiry_email', [last['id'], last['expires']], '服务即将到期',
+                    f'你的「{last["label"]}」套餐将于 {date}（北京时间）到期，之后没有其他有效套餐，'
+                    '届时连接将暂停。续费后新套餐会接在当前套餐之后计时，不会浪费剩余天数。')
         return result
 
     def collect(self, now=None):

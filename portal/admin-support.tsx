@@ -2,9 +2,34 @@ import { useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { api } from './api';
+import { notify } from './toast';
 import { FOREVER } from './cycles';
 
 type MailResult = { items: { id: string; recipient: string; account: string; subject: string; status: string; attempts: number; created: number; updated: number; next_attempt: number; provider_id: string; error: string }[]; page: number; pages: number; total: number; available: boolean };
+function MailTest() {
+  const [to, setTo] = useState('');
+  const [busy, setBusy] = useState(false);
+  return (
+    <form
+      className="mail-test"
+      onSubmit={(e) => {
+        e.preventDefault();
+        setBusy(true);
+        void api('admin/mail-test', { to: to.trim() })
+          .then(() => notify(`测试邮件已提交给邮件服务，请到 ${to.trim()} 查收（含垃圾箱）`))
+          .catch((err) => notify((err as Error).message, 'error'))
+          .finally(() => setBusy(false));
+      }}
+    >
+      <strong>发送测试邮件</strong>
+      <span className="small muted">确认邮件服务配置是否正常，每 10 分钟最多 5 封。</span>
+      <div className="support-search">
+        <Input type="email" required maxLength={254} placeholder="收件邮箱" value={to} onChange={(e) => setTo(e.target.value)} aria-label="测试邮件收件邮箱" />
+        <Button variant="outline" disabled={busy}>{busy ? '发送中…' : '发送'}</Button>
+      </div>
+    </form>
+  );
+}
 export function MailHistory() {
   const [result, setResult] = useState<{ key: string; data?: MailResult; error?: string } | null>(null);
   const [status, setStatus] = useState('');
@@ -20,8 +45,9 @@ export function MailHistory() {
   }, [page, status, key]);
   const labels: Record<string, string> = { pending: '待发送 / 重试中', sent: '邮件服务已接收', failed: '发送失败', cancelled: '已取消', sending: '提交中 / 结果待确认' };
   return <section className="section" id="admin-mail">
+    <MailTest />
     <h2>邮件通知记录</h2>
-    <p className="small muted">包含工单、流量、到期提醒及新增的验证码发送记录。邮件服务接收不代表送达；不保存验证码或邮件正文。旧工单收件地址可能未记录，发送元数据保留 90 天。</p>
+    <p className="small muted">包含验证码、兑换到账、工单回复、管理员工单提醒、流量与到期提醒。邮件服务接收不代表送达；不保存验证码或邮件正文。旧工单收件地址可能未记录，发送元数据保留 90 天。</p>
     <div className="actions">
       <select aria-label="邮件状态" value={status} onChange={e => { setStatus(e.target.value); setPage(1); }}><option value="">全部状态</option>{Object.entries(labels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select>
       <Button variant="outline" onClick={() => setVersion(v => v + 1)}>刷新邮件记录</Button>

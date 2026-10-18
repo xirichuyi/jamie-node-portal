@@ -796,3 +796,22 @@ main.wide.admin-mode {
     border-color: var(--jamie-border);
   }
 }
+
+/* Mail tools */
+.staff-alerts,
+.mail-test {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 18px;
+  padding: 14px 16px;
+  border: 1px solid var(--jamie-border);
+  border-radius: 12px;
+  background: var(--jamie-glass);
+  font-size: 0.875rem;
+}
+.mail-test .support-search {
+  display: flex;
+  gap: 8px;
+  margin: 4px 0 0;
+  max-width: 460px;
+}

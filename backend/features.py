@@ -279,6 +279,8 @@ class Features:
             )
             if staff and data.get('id'):
                 self.app.ticket_notifications.enqueue(db, row['account_id'], message.lastrowid)
+            elif not staff:
+                self.app.staff_notifications.enqueue(db, message.lastrowid)
             self.ledger.audit(
                 db, account['id'], 'ticket.reply' if data.get('id') else 'ticket.create', tid
             )
@@ -464,13 +466,23 @@ class Features:
 
     def loop(self):
         while True:
-            for task in (self.collect, self.app.ticket_notifications.deliver_pending,
-                         self.app.subscription_notifications.run):
+            for task in (self.collect, self.app.subscription_notifications.run):
                 try:
                     task()
                 except Exception as exc:
                     print('Feature collector:', type(exc).__name__, flush=True)
             time.sleep(300)
+
+    def mail_loop(self):
+        """Transactional mail (ticket replies, staff alerts, receipts) within about 30 seconds."""
+        while True:
+            for task in (self.app.ticket_notifications.deliver_pending,
+                         self.app.staff_notifications.deliver_pending, self.app.receipts.run):
+                try:
+                    task()
+                except Exception as exc:
+                    print('Mail worker:', type(exc).__name__, flush=True)
+            time.sleep(30)
 
     def service_status(self):
         with self.ledger.connect() as db:
@@ -561,4 +573,8 @@ class Features:
             'backup_at': backup_at,
             'status': self.service_status(),
             'trend': self.app.users.trend(),
+            'mail': {
+                'enabled': self.app.email_auth.enabled,
+                'staff_alerts': self.app.staff_notifications.settings()['ticket_email'],
+            },
         }

@@ -35,6 +35,11 @@ export const auditLabels: Record<string, string> = {
   'notice.save': '更新公告',
   'support.save': '更新联系方式',
   'incident.save': '发布服务事件',
+  'ticket.create': '提交工单',
+  'ticket.reply': '回复工单',
+  'ticket.close': '关闭工单',
+  'staff.alerts': '修改工单邮件提醒',
+  'mail.test': '发送测试邮件',
 };
 const filters: [string, string][] = [
   ['', '全部操作'],

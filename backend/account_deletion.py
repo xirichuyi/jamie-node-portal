@@ -59,6 +59,10 @@ class AccountDeletion:
                 "UPDATE subscription_mail_queue SET status='cancelled' WHERE account_id=? AND status='pending'",
                 (target_id,),
             )
+            db.execute(
+                "UPDATE receipt_mail_queue SET status='cancelled' WHERE account_id=? AND status='pending'",
+                (target_id,),
+            )
         app.wake.set()
         return {'pending': True}
 
@@ -118,6 +122,10 @@ class AccountDeletion:
                 (uid, uid, uid),
             )
             db.execute(
+                'DELETE FROM staff_mail_queue WHERE message_id IN (SELECT id FROM ticket_messages WHERE account_id=? OR ticket_id IN (SELECT id FROM support_tickets WHERE account_id=?))',
+                (uid, uid),
+            )
+            db.execute(
                 'DELETE FROM ticket_reads WHERE account_id=? OR ticket_id IN (SELECT id FROM support_tickets WHERE account_id=?)',
                 (uid, uid),
             )
@@ -131,6 +139,10 @@ class AccountDeletion:
             db.execute(
                 'DELETE FROM audit WHERE actor=? OR target=? OR target IN (SELECT id FROM cards WHERE redeemed_by=?)',
                 (uid, uid, uid),
+            )
+            db.execute(
+                'DELETE FROM receipt_mail_queue WHERE account_id=? OR card_id IN (SELECT id FROM cards WHERE redeemed_by=?)',
+                (uid, uid),
             )
             # Removing redeemed card digests never makes the original cards redeemable again.
             db.execute('DELETE FROM cards WHERE redeemed_by=?', (uid,))
@@ -151,7 +163,7 @@ class AccountDeletion:
                 'account_deletions',
             ):
                 db.execute('DELETE FROM ' + table + ' WHERE account_id=?', (uid,))
-            for table in ('billing_accounts', 'user_traffic_activity'):
+            for table in ('billing_accounts', 'user_traffic_activity', 'admin_user_notes'):
                 db.execute('DELETE FROM ' + table + ' WHERE member_id=?', (uid,))
             db.execute('DELETE FROM accounts WHERE id=?', (uid,))
             db.execute('DELETE FROM members WHERE id=?', (uid,))

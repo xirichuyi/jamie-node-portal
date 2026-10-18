@@ -183,12 +183,12 @@ export function AccountAttention({
     tickets.data?.tickets.filter((t) => t.status === 'replied').length || 0;
   return (
     <div className="account-attention">
-      {recovery.data && !recovery.data.email_verified && !recovery.data.recovery_created && !dismissed && (
+      {recovery.data && !recovery.data.email_verified && !dismissed && (
         <div className="journey-alert">
-          <span>还未设置找回方式。保存恢复码，忘记密码时也能找回账号。</span>
+          <span>还没有绑定邮箱：绑定后可收到兑换到账、服务到期和流量不足提醒，忘记密码也能找回。</span>
           <div className="actions">
             <button className="text-link" onClick={() => navigate('sessions')}>
-              设置恢复码 →
+              去绑定邮箱 →
             </button>
             <button
               className="text-link"
@@ -940,6 +940,7 @@ export function Tickets({
       />
       {work.feedback}
       {!staff && <NotificationPreferences ticketOnly />}
+      {staff && <StaffAlerts />}
       <div
         className={
           'feature-split ticket-workspace ' +
@@ -1180,13 +1181,45 @@ type Session = {
   seen: number;
   current: boolean;
 };
+function StaffAlerts() {
+  const { data, reload } = useData<{ ticket_email: boolean; available: boolean; recipients: string[] }>(
+    'admin/staff-alerts',
+  );
+  const work = useWork();
+  if (!data) return null;
+  return (
+    <div className="staff-alerts">
+      <label>
+        <input
+          type="checkbox"
+          checked={data.ticket_email}
+          disabled={work.busy}
+          onChange={(e) => {
+            const enabled = e.target.checked;
+            void work.run(async () => {
+              await api('admin/staff-alerts', { ticket_email: enabled });
+              await reload();
+            });
+          }}
+        />{' '}
+        用户提交或回复工单时邮件提醒我
+      </label>
+      <small className="muted">
+        {data.available
+          ? `发送到 ${data.recipients.join('、')}；管理员已回复的工单不再提醒。`
+          : '邮件服务未配置，或管理员账号未绑定邮箱。'}
+      </small>
+      {work.feedback}
+    </div>
+  );
+}
 export function NotificationPreferences({ ticketOnly = false }: { ticketOnly?: boolean }) {
   type Preference = 'ticket_email' | 'traffic_email' | 'expiry_email';
   const { data, reload } = useData<Record<Preference, boolean> & { available: boolean }>('notifications');
   const work = useWork();
   const options: [Preference, string][] = ticketOnly ? [['ticket_email', '工单有新回复时邮件提醒']] : [
     ['traffic_email', '可用流量剩余不超过 10% 时邮件提醒'],
-    ['expiry_email', '基础套餐到期前 3 天邮件提醒'],
+    ['expiry_email', '服务到期前 3 天邮件提醒（续费后的套餐会顺延，不会误报）'],
     ['ticket_email', '工单有新回复时邮件提醒'],
   ];
   return <div className="notification-preference">
@@ -1195,7 +1228,7 @@ export function NotificationPreferences({ ticketOnly = false }: { ticketOnly?: b
       const enabled = e.target.checked;
       void work.run(async () => { await api('notifications', { [field]: enabled }); await reload(); });
     }} /> {label}</label>)}
-    <p className="small muted">默认开启，可随时关闭；只发送到已验证邮箱。同一套餐或流量周期不会重复提醒。</p>
+    <p className="small muted">默认开启，可随时关闭；只发送到已验证邮箱。同一套餐或流量周期不会重复提醒。兑换成功的到账通知属于交易通知，始终发送。</p>
     {data && !data.available && <small className="muted">需绑定邮箱且邮件服务可用。</small>}
     {work.feedback}
   </div>;
@@ -1205,8 +1238,8 @@ function ChangeEmail({ email }: { email: string }) {
   const [next, setNext] = useState(''), [password, setPassword] = useState(''), [oldCode, setOldCode] = useState(''), [newCode, setNewCode] = useState('');
   const work = useWork();
   return <section className="section"><h2>登录邮箱</h2>
-    <p className="small muted">{email || '尚未绑定邮箱'}</p>
-    <details className="email-change-disclosure"><summary>{email ? '更换邮箱' : '绑定邮箱'}</summary>
+    <p className="small muted">{email || '尚未绑定邮箱：绑定后才能收到到账、到期和流量提醒，也能用邮箱找回密码。'}</p>
+    <details className="email-change-disclosure" open={!email}><summary>{email ? '更换邮箱' : '绑定邮箱'}</summary>
     <p className="small muted">完成后使用新邮箱登录，其他登录会话和旧恢复码失效，订阅不变。</p>
     <form onSubmit={e => { e.preventDefault(); void work.run(async () => {
       await api('account/email', { email: next, password, old_code: oldCode, new_code: newCode });
@@ -1572,6 +1605,7 @@ type Ops = {
   }[];
   status: Status;
   trend?: { date: string; registered: number; redeemed: number }[];
+  mail?: { enabled: boolean; staff_alerts: boolean };
 };
 function TrendBars({
   title,
@@ -1813,7 +1847,12 @@ export function Operations({
                 </p>
               )}
               <p className="small muted">
-                仅检查备份文件时间，不代表已完成恢复演练。站内提醒与恢复码已启用；未配置邮件发送服务。
+                仅检查备份文件时间，不代表已完成恢复演练。
+                {data.mail
+                  ? data.mail.enabled
+                    ? ` 邮件服务已配置；新工单邮件提醒${data.mail.staff_alerts ? '已开启' : '已关闭'}。`
+                    : ' 邮件服务未配置，用户收不到验证码和提醒。'
+                  : ''}
               </p>
               <Button variant="outline" onClick={() => navigate('status')}>
                 查看服务状态

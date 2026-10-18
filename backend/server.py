@@ -67,6 +67,7 @@ def main():
     threading.Thread(target=app.sync_loop, daemon=True).start()
     threading.Thread(target=app.monitor.run, daemon=True).start()
     threading.Thread(target=app.features.loop, daemon=True).start()
+    threading.Thread(target=app.features.mail_loop, daemon=True).start()
     Server(('127.0.0.1', config.get('port', 18766)), app).serve_forever()
 
 
