@@ -19,6 +19,37 @@ const authentication = await vite.ssrLoadModule('/portal/auth.tsx');
 const users = await vite.ssrLoadModule('/portal/admin-users.tsx');
 const notices = await vite.ssrLoadModule('/portal/notice-entry.tsx');
 const support = await vite.ssrLoadModule('/portal/admin-support.tsx');
+const cards = await vite.ssrLoadModule('/portal/card-entry.tsx');
+void test('card links keep the credential in the fragment and validate pasted values', () => {
+  const code = '01234567-89ABCDEF-01234567-89ABCDEF';
+  const link = cards.cardLink(code, 'https://example.test');
+  assert.equal(new URL(link).search, '');
+  assert.equal(cards.parseCard(link), code);
+  assert.equal(cards.parseCard(' ' + code + ' '), code);
+  assert.throws(() => cards.parseCard('unrelated clipboard content'));
+  assert.throws(() => cards.parseCard('https://example.test/?code=' + code));
+  const markup = renderToStaticMarkup(React.createElement(cards.PasteCard, {onCode: () => {}}));
+  assert.match(markup, /从剪贴板粘贴/);
+  assert.match(markup, /type="button"/);
+});
+void test('opening a card link removes it from the URL but keeps it through login in memory', () => {
+  const code = '01234567-89ABCDEF-01234567-89ABCDEF';
+  const oldLocation = globalThis.location, oldWindow = globalThis.window;
+  try {
+    const url = new URL(cards.cardLink(code, 'https://example.test'));
+    globalThis.location = url;
+    globalThis.window = { dispatchEvent: () => {}, history: { state: null, replaceState: (_state, _unused, target) => { url.href = new URL(target, url).href; } } };
+    cards.captureCardLink();
+    assert.equal(url.hash, '#/redeem');
+    assert.equal(cards.pendingCard(), code);
+    assert.throws(() => cards.parseCard(cards.cardLink(code, 'https://untrusted.test')));
+    cards.clearPendingCard();
+    assert.equal(cards.pendingCard(), '');
+  } finally {
+    if (oldLocation === undefined) delete globalThis.location; else globalThis.location = oldLocation;
+    if (oldWindow === undefined) delete globalThis.window; else globalThis.window = oldWindow;
+  }
+});
 test('account deletion is an explicit action and pending deletion is visible to staff', () => {
   const self = renderToStaticMarkup(React.createElement(features.DeleteAccount, {username:'test@example.com'}));
   const admin = renderToStaticMarkup(React.createElement(features.DeleteAccount, {username:'test@example.com',userId:'test-id'}));

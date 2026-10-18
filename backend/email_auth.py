@@ -12,6 +12,7 @@ import urllib.request
 from errors import DomainError
 from passwords import hash_password
 from email_templates import verification_email
+import mail_history
 
 
 def email_address(value):
@@ -36,6 +37,7 @@ class EmailAuth:
         self.config = app.config.get('mail', {})
         self.enabled = bool(self.config.get('api_key') and self.config.get('from'))
         with app.ledger.connect() as db:
+            mail_history.initialize(db)
             db.executescript("""
                 CREATE TABLE IF NOT EXISTS email_challenges (
                     email TEXT NOT NULL, purpose TEXT NOT NULL, id TEXT NOT NULL,
@@ -91,12 +93,17 @@ class EmailAuth:
                 'Idempotency-Key': key,
             },
         )
+        mail_history.record(self.app, key, email, content['subject'], 'sending')
         try:
             with urllib.request.urlopen(request, timeout=15) as response:
-                if not json.load(response).get('id'):
+                provider_id = json.load(response).get('id')
+                if not isinstance(provider_id, str) or not provider_id:
                     raise ValueError('Missing delivery id')
-        except (OSError, ValueError):
+        except (OSError, ValueError) as exc:
+            error = f'邮件服务返回 HTTP {exc.code}' if isinstance(exc, urllib.error.HTTPError) else '网络异常或邮件服务响应无效'
+            mail_history.record(self.app, key, email, content['subject'], 'failed', error=error)
             raise DomainError('邮件暂时无法发送，请稍后重试') from None
+        mail_history.record(self.app, key, email, content['subject'], 'sent', provider_id=provider_id)
 
     def change_purpose(self, account, purpose):
         fingerprint = hashlib.sha256(

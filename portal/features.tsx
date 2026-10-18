@@ -9,6 +9,7 @@ import {
 } from 'react';
 import { remainingAfter } from './experience';
 import { EmailCode } from './email-code';
+import { PasteCard, useCardCode, clearPendingCard } from './card-entry';
 import { OperationsReadiness } from './admin-support';
 import QRCode from 'qrcode';
 import { Button } from '@/components/ui/button';
@@ -675,10 +676,10 @@ export function Redemption({
   subscription?: Subscription;
 }) {
   const work = useWork(),
-    [code, setCode] = useState(''),
     [preview, setPreview] = useState<Preview | null>(null),
     [done, setDone] = useState(false);
   const [target, setTarget] = useState('');
+  const [code, setCode] = useCardCode(() => { setPreview(null); setDone(false); setTarget(''); });
   const used = subscription?.quota === 0 ? 0 : subscription?.used;
   return (
     <>
@@ -732,6 +733,7 @@ export function Redemption({
               });
             }}
           >
+            <PasteCard disabled={work.busy} onCode={value => { setCode(value); setPreview(null); setTarget(''); }} />
             <Field label="卡密">
               <Input
                 required
@@ -788,6 +790,7 @@ export function Redemption({
                   onClick={() =>
                     void work.run(async () => {
                       await api('redeem', { code, target: target || undefined });
+                      clearPendingCard();
                       setDone(true);
                       setPreview(null);
                       setCode('');

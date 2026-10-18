@@ -24,6 +24,48 @@ type Card = {
   redeem_before: number;
 };
 type Cards = { cards: Card[]; total: number; page: number; pages: number };
+
+type MailResult = { items: { id: string; recipient: string; account: string; subject: string; status: string; attempts: number; created: number; updated: number; next_attempt: number; provider_id: string; error: string }[]; page: number; pages: number; total: number; available: boolean };
+export function MailHistory() {
+  const [result, setResult] = useState<{ key: string; data?: MailResult; error?: string } | null>(null);
+  const [status, setStatus] = useState('');
+  const [page, setPage] = useState(1);
+  const [version, setVersion] = useState(0);
+  const key = `${page}:${status}:${version}`;
+  const data = result?.key === key ? result.data : null;
+  const error = result?.key === key ? result.error : '';
+  useEffect(() => {
+    let active = true;
+    void api<MailResult>(`admin/mail-history?page=${page}&status=${status}`).then(data => { if (active) setResult({ key, data }); }).catch(() => { if (active) setResult({ key, error: '邮件记录加载失败，请重试' }); });
+    return () => { active = false; };
+  }, [page, status, key]);
+  const labels: Record<string, string> = { pending: '待发送 / 重试中', sent: '邮件服务已接收', failed: '发送失败', cancelled: '已取消', sending: '提交中 / 结果待确认' };
+  return <section className="section" id="admin-mail">
+    <h2>邮件通知记录</h2>
+    <p className="small muted">包含工单、流量、到期提醒及新增的验证码发送记录。邮件服务接收不代表送达；不保存验证码或邮件正文。旧工单收件地址可能未记录，发送元数据保留 90 天。</p>
+    <div className="actions">
+      <select aria-label="邮件状态" value={status} onChange={e => { setStatus(e.target.value); setPage(1); }}><option value="">全部状态</option>{Object.entries(labels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select>
+      <Button variant="outline" onClick={() => setVersion(v => v + 1)}>刷新邮件记录</Button>
+    </div>
+    {error && <p role="alert">{error}</p>}
+    {!data && !error && <output>正在加载邮件记录…</output>}
+    {data && <>
+      {!data.available && <p className="message error">邮件服务尚未配置</p>}
+      <p className="small muted">共 {data.total} 条</p>
+      {data.items.map(item => <article className="surface" key={item.id}>
+        <strong>{item.subject} · {labels[item.status] || item.status}</strong>
+        <p>{item.recipient || '历史记录未保存收件地址'}</p>
+        {item.account && <p className="small muted">所属账号：{item.account}</p>}
+        <p className="small muted">创建：{new Date(item.created * 1000).toLocaleString()} · 尝试 {item.attempts} 次{item.updated > 0 && ` · 最近提交：${new Date(item.updated * 1000).toLocaleString()}`}</p>
+        {item.status === 'pending' && item.next_attempt > 0 && <p className="small muted">下次尝试不早于：{new Date(item.next_attempt * 1000).toLocaleString()}</p>}
+        {item.error && <p>{item.error}</p>}
+        {item.provider_id && <p className="small muted">服务商邮件编号：{item.provider_id}</p>}
+      </article>)}
+      {!data.items.length && <p className="empty muted">暂无邮件记录</p>}
+      <div className="actions"><Button disabled={page <= 1} onClick={() => setPage(p => p - 1)}>上一页</Button><span>{page} / {data.pages}</span><Button disabled={page >= data.pages} onClick={() => setPage(p => p + 1)}>下一页</Button></div>
+    </>}
+  </section>;
+}
 type Diagnosis = {
   username: string;
   account: { id: string; disabled: number; must_change: number } | null;

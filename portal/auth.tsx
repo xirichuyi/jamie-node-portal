@@ -5,6 +5,7 @@ import { Input } from '@/components/ui/input';
 import { Contact } from './content';
 import { api, ApiError } from './api';
 import { EmailCode } from './email-code';
+import { PasteCard, useCardCode, clearPendingCard } from './card-entry';
 import { ruleLabel, type CycleRule } from './cycles';
 
 type Preview = CycleRule & { label: string; quota: number; days: number };
@@ -35,8 +36,8 @@ export function AuthFlow({
 }) {
   const signup = mode === 'register';
   const [emailCode, setEmailCode] = useState('');
-  const [code, setCode] = useState(''),
-    [plan, setPlan] = useState<Preview | null>(null);
+  const [plan, setPlan] = useState<Preview | null>(null);
+  const [code, setCode] = useCardCode(() => { setPlan(null); });
   const [username, setUsername] = useState(''),
     [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false),
@@ -71,6 +72,7 @@ export function AuthFlow({
         setCode('');
         setPassword('');
         if (signup) {
+          clearPendingCard();
           try {
             sessionStorage.removeItem('jamie-guide');
           } catch {}
@@ -132,6 +134,7 @@ export function AuthFlow({
               {error}
             </p>
           )}
+          {signup && !plan && <PasteCard disabled={busy} onCode={setCode} />}
           <form
             onSubmit={(event) => {
               event.preventDefault();

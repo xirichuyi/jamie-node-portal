@@ -7,6 +7,7 @@ from http_types import UNHANDLED
 from validation import text
 from passwords import hash_password
 from routes_support import ticket_request
+import mail_history
 
 
 def dispatch(ctx):
@@ -15,6 +16,8 @@ def dispatch(ctx):
     data = ctx.data
     account = ctx.account
     write = ctx.write
+    if not write and path == '/api/admin/mail-history':
+        return ctx.reply(200, mail_history.listing(app, parse_qs(urlsplit(ctx.raw_path).query)))
     if write and path == '/api/admin/user-delete':
         return ctx.reply(
             202,

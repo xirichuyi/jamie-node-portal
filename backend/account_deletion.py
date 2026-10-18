@@ -102,6 +102,8 @@ class AccountDeletion:
             ).fetchone()
             if not account or not account['deleting']:
                 raise DomainError('账号未进入删除流程')
+            db.execute('''DELETE FROM mail_deliveries WHERE recipient=? OR recipient IN
+                (SELECT email FROM verified_emails WHERE account_id=?)''', (account['username'], uid))
             db.execute(
                 'DELETE FROM email_challenges WHERE email IN (SELECT email FROM verified_emails WHERE account_id=?)',
                 (uid,),

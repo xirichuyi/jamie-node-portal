@@ -9,12 +9,13 @@ import React, {
 import { createRoot } from 'react-dom/client';
 import { DockViewport } from './dock-viewport';
 import { AuthFlow } from './auth';
+import { captureCardLink, pendingCard, cardLink } from './card-entry';
 import { CycleFields, ruleLabel, FOREVER } from './cycles';
 const UserManager = React.lazy(() =>
   import('./admin-users').then((module) => ({ default: module.UserManager })),
 );
 import { NoticeEntry } from './notice-entry';
-import { CardSearch, LoginDiagnosis } from './admin-support';
+import { CardSearch, LoginDiagnosis, MailHistory } from './admin-support';
 import {
   ArrowUpRight,
   ArrowRight,
@@ -215,8 +216,8 @@ function App() {
   );
   useEffect(() => {
     if (me && !me.user.must_change && ['login', 'register'].includes(view))
-      setView('home', true);
-  }, [me?.user.username, view]);
+      setView(pendingCard() ? 'redeem' : 'home', true);
+  }, [me, view, setView]);
   async function load() {
     try {
       const m = await api<Me>('me');
@@ -446,7 +447,7 @@ function App() {
         ) : !me &&
           !['plans', 'guide', 'help', 'notices', 'recover'].includes(view) ? (
           <AuthFlow
-            mode={authModeFor(view)}
+            mode={view === 'redeem' && pendingCard() ? 'login' : authModeFor(view)}
             navigate={navigate}
             onSuccess={async (created) => {
               await act(async () => {
@@ -458,7 +459,7 @@ function App() {
                     ? 'security'
                     : created
                       ? 'guide'
-                      : afterLogin(view),
+                      : pendingCard() ? 'redeem' : afterLogin(view),
                   true,
                 );
               });
@@ -946,6 +947,7 @@ function App() {
                           <Download />
                           下载卡密
                         </Button>
+                        <Button variant="outline" onClick={() => void act(() => copy(codes.map(code => cardLink(code, location.origin)).join('\n')))}>复制兑换链接</Button>
                       </div>
                     </div>
                   )}
@@ -957,6 +959,7 @@ function App() {
                   }}
                 />
                 <LoginDiagnosis />
+                <MailHistory />
                 <section className="section" id="admin-audit">
                   <h2>
                     操作记录 <span className="muted small">最近 100 条</span>
@@ -1054,4 +1057,6 @@ function App() {
     </>
   );
 }
+captureCardLink();
+window.addEventListener('hashchange', captureCardLink);
 createRoot(document.getElementById('root')!).render(<App />);

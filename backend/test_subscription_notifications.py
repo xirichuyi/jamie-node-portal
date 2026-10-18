@@ -9,6 +9,7 @@ from application import App
 from errors import DomainError
 from routes_support import dispatch
 from email_templates import service_email
+import mail_history
 from test_server import FakePanel
 
 GIB = 1024**3
@@ -55,6 +56,9 @@ class SubscriptionNotificationTests(unittest.TestCase):
         self.process()
         self.app.email_auth.deliver.assert_called_once()
         self.assertEqual(self.queue()[0]['status'], 'sent')
+        rows = mail_history.listing(self.app, {})['items']
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]['subject'], '流量提醒')
         self.assertNotIn('/sub/', str(self.app.email_auth.deliver.call_args))
 
     def test_expiry_per_package_not_addon_or_permanent(self):
