@@ -13,7 +13,7 @@ def dispatch(ctx):
     data = ctx.data
     write = ctx.write
     if not write and path == '/api/content':
-        return ctx.reply(200, app.content.read())
+        return ctx.reply(200, {**app.content.read(), 'payments_enabled': app.payments.enabled})
     if write and path == '/api/register/preview':
         app.limit('card-preview:' + ip, 10, 900)
         return ctx.reply(200, app.card_preview(data.get('code')))

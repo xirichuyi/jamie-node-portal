@@ -21,6 +21,7 @@ from subscription_notifications import SubscriptionNotifications
 from staff_notifications import StaffNotifications
 from receipt_notifications import ReceiptNotifications
 from account_deletion import AccountDeletion
+from payments import Payments
 
 from http_types import HttpError
 
@@ -69,6 +70,7 @@ class App:
         self.subscription_notifications = SubscriptionNotifications(self)
         self.staff_notifications = StaffNotifications(self)
         self.receipts = ReceiptNotifications(self)
+        self.payments = Payments(self)
         self.account_deletion = AccountDeletion(self)
 
     def limit(self, key, count, window):

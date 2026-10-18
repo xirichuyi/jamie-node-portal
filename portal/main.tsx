@@ -9,6 +9,7 @@ import React, {
 import { createRoot } from 'react-dom/client';
 import { DockViewport } from './dock-viewport';
 import { AuthFlow } from './auth';
+import { OrdersPage } from './payments';
 import { captureCardLink, pendingCard } from './card-entry';
 import { ruleLabel, FOREVER } from './cycles';
 const UserManager = React.lazy(() =>
@@ -429,7 +430,7 @@ function App() {
             <h1>正在读取你的订阅</h1>
           </section>
         ) : !me &&
-          !['plans', 'guide', 'help', 'notices', 'recover'].includes(view) ? (
+          !['plans', 'guide', 'help', 'notices', 'recover', 'orders'].includes(view) ? (
           <AuthFlow
             mode={view === 'redeem' && pendingCard() ? (returningVisitor() ? 'login' : 'register') : authModeFor(view, returningVisitor())}
             navigate={navigate}
@@ -481,10 +482,12 @@ function App() {
                     <CardsWorkspace plans={content?.plans || []} packageBilling={!!content?.package_billing} />
                   )}
                   {view === 'admin_logs' && <LogsWorkspace />}
+                  {view === 'admin_orders' && <OrdersPage signedIn admin />}
                 </React.Suspense>
               </AdminShell>
             )}
             {view === 'recover' && <Recover navigate={navigate} />}
+            {view === 'orders' && <OrdersPage signedIn={!!me} onChanged={async () => { await load(); }} />}
             {view === 'usage' && me && (
               <>
                 <PageTitle
@@ -509,6 +512,7 @@ function App() {
                 failed={!!contentError}
                 navigate={navigate}
                 subscription={s}
+                username={me?.user.username}
               />
             )}
             {view === 'guide' && (

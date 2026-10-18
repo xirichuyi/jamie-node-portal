@@ -42,6 +42,8 @@ class AccountDeletion:
                 raise DomainError('管理员账号不支持注销或删除')
             if not admin_action and confirmation != target['username']:
                 raise DomainError('请输入要删除的完整账号')
+            if db.execute("SELECT 1 FROM payment_orders WHERE account_id=? AND status IN ('creating','pending','confirming','paid','review')", (target_id,)).fetchone():
+                raise DomainError('还有未完成的支付订单，请先等待付款结果或联系管理员处理')
             db.execute(
                 'INSERT OR IGNORE INTO account_deletions(account_id,requested) VALUES(?,?)',
                 (target_id, int(time.time())),
@@ -165,5 +167,6 @@ class AccountDeletion:
                 db.execute('DELETE FROM ' + table + ' WHERE account_id=?', (uid,))
             for table in ('billing_accounts', 'user_traffic_activity', 'admin_user_notes'):
                 db.execute('DELETE FROM ' + table + ' WHERE member_id=?', (uid,))
+            db.execute('UPDATE payment_orders SET account_id=NULL WHERE account_id=?', (uid,))
             db.execute('DELETE FROM accounts WHERE id=?', (uid,))
             db.execute('DELETE FROM members WHERE id=?', (uid,))

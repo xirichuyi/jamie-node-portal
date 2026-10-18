@@ -12,6 +12,8 @@ const parents: Record<string, string> = {
   help: 'account',
   security: 'account',
   history: 'account',
+  orders: 'plans',
+  admin_orders: 'account',
   subscription: 'account',
   admin: 'account',
   admin_users: 'account',
@@ -35,7 +37,7 @@ export const afterLogin = (view: string) =>
   ['login', 'register', 'account'].includes(view) ? 'home' : view;
 export const isAuthenticationView = (view: string, signedIn: boolean) =>
   ['recover', 'login', 'register'].includes(view) ||
-  (!signedIn && !['plans', 'guide', 'help', 'notices'].includes(view));
+  (!signedIn && !['plans', 'guide', 'help', 'notices', 'orders'].includes(view));
 export const showDock = (
   view: string,
   signedIn: boolean,
@@ -51,6 +53,7 @@ export const showDock = (
     'admin_content',
     'admin_tickets',
     'admin_logs',
+    'admin_orders',
     'operations',
   ].includes(view);
 export const readView = () => {

@@ -81,6 +81,20 @@ class Handler(BaseHTTPRequestHandler):
         if not write and path == '/api/health':
             return self.reply(200, {'ok': True})
         app.limit('request:' + ip, 240, 60)
+        if write and path == '/api/payments/webhook':
+            # This exact endpoint authenticates raw bytes with the merchant HMAC,
+            # not browser Origin/cookies. All other writes retain the CSRF gates.
+            try:
+                length = int(self.headers.get('Content-Length', '0'))
+            except ValueError:
+                raise HttpError(400, '回调长度不正确') from None
+            if not 0 < length <= 16384:
+                raise HttpError(413, '回调过大')
+            self.connection.settimeout(10)
+            raw = self.rfile.read(length)
+            if len(raw) != length:
+                raise HttpError(400, '回调不完整')
+            return self.reply(200, app.payments.webhook(raw, self.headers))
         if not write and path.startswith('/internal/subscription-info/'):
             if self.client_address[0] not in ('127.0.0.1', '::1') or any(
                 self.headers.get(h) for h in ('X-Forwarded-For', 'X-Real-IP', 'Forwarded')

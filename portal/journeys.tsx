@@ -315,6 +315,7 @@ export function AccountHub({
         ['subscription', '连接与订阅', '导入设备、二维码、链接管理', Globe2],
         ['usage', '用量明细', '最近 30 天的流量记录', BarChart3],
         ['history', '兑换记录', '查看卡密到账记录', History],
+        ['orders', '支付订单', 'USDT 付款与到账状态', History],
       ],
     },
     {

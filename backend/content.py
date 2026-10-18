@@ -56,6 +56,8 @@ class Content:
                 CREATE TABLE IF NOT EXISTS portal_migrations (version INTEGER PRIMARY KEY);
             """)
             install_rules(db, 'portal_plans')
+            if 'usdt_micros' not in {r['name'] for r in db.execute('PRAGMA table_info(portal_plans)')}:
+                db.execute('ALTER TABLE portal_plans ADD COLUMN usdt_micros INTEGER NOT NULL DEFAULT 0')
         with ledger.transaction() as db:
             if not db.execute('SELECT 1 FROM portal_migrations WHERE version=1').fetchone():
                 now = int(time.time())
@@ -167,6 +169,8 @@ class Content:
                 self.ledger.audit(db, actor, 'support.save', '1')
             return '1'
         if kind == 'plan':
+            from payment_gateway import micros
+
             table = 'portal_plans'
             values = {
                 'name': text(data, 'name', 60),
@@ -179,6 +183,8 @@ class Content:
                 'sort_order': integer(data, 'sort_order', 0, 999),
             }
             values.update(rules(data))
+            if 'usdt_price' in data:
+                values['usdt_micros'] = micros(data['usdt_price'] or '0', allow_zero=True)
             if (
                 values['permanent'] or values['reset_period'] != 'never'
             ) and not self.ledger.package_billing:

@@ -6,10 +6,11 @@ import routes_account
 import routes_subscription
 import routes_support
 import routes_admin
+import routes_payments
 
 PUBLIC = {('GET', '/api/content')} | {
     ('POST', '/api/' + name)
-    for name in ('register/preview', 'email/code', 'email/reset', 'recover', 'login', 'register')
+    for name in ('register/preview', 'email/code', 'email/reset', 'recover', 'login', 'register', 'checkout', 'checkout/status')
 }
 PASSWORD_CHANGE_ALLOWED = {
     ('POST', '/api/logout'),
@@ -34,11 +35,11 @@ def dispatch(ctx):
     method = 'POST' if ctx.write else 'GET'
     authorize(method, ctx.path, ctx.account)
     groups = (
-        (routes_auth,)
+        (routes_auth, routes_payments)
         if (method, ctx.path) in PUBLIC
         else (routes_admin,)
         if ctx.path.startswith('/api/admin/')
-        else (routes_account, routes_subscription, routes_support)
+        else (routes_account, routes_subscription, routes_support, routes_payments)
     )
     for group in groups:
         result = group.dispatch(ctx)

@@ -1,5 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { priceText } from './experience';
+import { PurchaseButton } from './payments';
 import { publicNotices, markNoticeRead } from './notice-entry';
 import {
   ArrowUpRight,
@@ -39,6 +40,8 @@ export type Plan = CycleRule & {
   quota_gib: number;
   days: number;
   price_label: string;
+  usdt_micros?: number;
+  usdt_price?: string;
   badge: string;
   published: number;
   sort_order: number;
@@ -61,7 +64,7 @@ export type Support = {
   contact_note: string;
   revision: number;
 };
-export type Catalog = { plans: Plan[]; notices: Notice[]; support: Support; package_billing?: boolean };
+export type Catalog = { plans: Plan[]; notices: Notice[]; support: Support; package_billing?: boolean; payments_enabled?: boolean };
 type Node = {
   id: number;
   name: string;
@@ -359,9 +362,11 @@ export function PlansPage({
   navigate,
   subscription,
   failed = false,
+  username,
 }: {
   content: Catalog | null;
   failed?: boolean;
+  username?: string;
   navigate: (s: string) => void;
   subscription?: {
     quota: number;
@@ -379,6 +384,7 @@ export function PlansPage({
           <Ticket size={16} />
           兑换卡密
         </Button>
+        <Button variant="outline" onClick={() => navigate('orders')}>支付订单</Button>
       </header>
       {subscription && subscription.quota > 0 && (
         <div className="membership-strip">
@@ -442,6 +448,7 @@ export function PlansPage({
                   </button>
                 )}
               </footer>
+              {content.payments_enabled && (p.usdt_micros || 0) > 0 && <PurchaseButton planId={p.id} label={p.name} price={p.usdt_micros!} username={username} navigate={navigate} />}
             </article>
           ))}
         </div>
@@ -475,7 +482,7 @@ export function HelpPage({
   const faqs = [
     [
       '如何获得卡密？',
-      '本站暂不提供在线付款。通过原发卡渠道联系管理员，确认套餐后获取卡密。已配置的官方联系方式会显示在本页。',
+      '支持在线支付的套餐会显示 USDT 购买按钮。已有账号付款后自动到账；访客付款后领取卡密，再验证邮箱开通。请在收款页选择正确网络，支付显示的准确金额，并保存订单号。也可通过官方联系方式向管理员获取卡密。',
     ],
     [
       '订阅链接为什么不能导入？',
@@ -557,6 +564,7 @@ const blankPlan = {
   quota_gib: 100,
   days: 30,
   price_label: '',
+  usdt_price: '',
   badge: '',
   published: 0,
   sort_order: 0,
@@ -646,7 +654,7 @@ export function ContentAdmin({ onSaved }: { onSaved: () => Promise<void> }) {
                 <Button
                   variant="outline"
                   onClick={() => {
-                    setPlan({ ...p });
+                    setPlan({ ...p, usdt_price: p.usdt_micros ? String(p.usdt_micros / 1000000) : '' });
                     setMessage('');
                   }}
                 >
@@ -688,6 +696,9 @@ export function ContentAdmin({ onSaved }: { onSaved: () => Promise<void> }) {
                     setPlan({ ...plan, price_label: e.target.value })
                   }
                 />
+              </Field>
+              <Field label="USDT 在线售价（留空关闭购买）">
+                <Input type="text" inputMode="decimal" placeholder="例如 3" value={plan.usdt_price || ''} onChange={e => setPlan({ ...plan, usdt_price: e.target.value })} />
               </Field>
               <Field label="流量（GiB）">
                 <Input

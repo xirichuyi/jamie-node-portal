@@ -24,6 +24,9 @@ def dispatch(ctx):
     data = ctx.data
     account = ctx.account
     write = ctx.write
+    if not write and path == '/api/admin/orders':
+        query = parse_qs(urlsplit(ctx.raw_path).query)
+        return ctx.reply(200, app.payments.listing(account, query.get('page', ['1'])[0], admin=True))
     if not write and path == '/api/admin/mail-history':
         return ctx.reply(200, mail_history.listing(app, parse_qs(urlsplit(ctx.raw_path).query)))
     if write and path == '/api/admin/user-delete':

@@ -19,11 +19,13 @@ export const adminViews = [
   'admin_tickets',
   'admin_content',
   'admin_logs',
+  'admin_orders',
 ];
 const items = [
   { id: 'operations', label: '概览', Icon: LayoutDashboard },
   { id: 'admin_users', label: '用户', Icon: Users },
   { id: 'admin', label: '卡密', Icon: Ticket },
+  { id: 'admin_orders', label: '支付订单', Icon: Ticket },
   { id: 'admin_tickets', label: '工单', Icon: LifeBuoy },
   { id: 'admin_content', label: '公告与套餐', Icon: Megaphone },
   { id: 'admin_logs', label: '日志', Icon: ScrollText },
