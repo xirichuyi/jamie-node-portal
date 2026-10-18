@@ -70,6 +70,7 @@ import './glass.css';
 import './features.css';
 import './layout.css';
 import './admin.css';
+import './payments.css';
 import {
   Dashboard,
   AccountHub,

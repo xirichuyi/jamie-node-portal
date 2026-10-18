@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent, DialogTitle, DialogDescription } from '@/components/ui/dialog';
+import { ArrowUpRight, Copy, ReceiptText, RefreshCw } from 'lucide-react';
 import { api } from './api';
 import { cardLink } from './card-entry';
 
@@ -45,19 +47,22 @@ export function PurchaseButton({ planId, label, price, username, navigate }: { p
     } catch (e) { setError(e instanceof Error ? e.message : '无法创建订单；请允许本站存储后重试'); }
     finally { running.current = false; setBusy(false); }
   }
-  return <div>
-    {!confirm ? <Button onClick={() => setConfirm(true)}>USDT 购买 · {price / 1000000}</Button> : <div className="surface">
-      <strong>{label} · {price / 1000000} USDT</strong>
-      <p className="small muted">{username ? `付款后自动充入当前账号 ${username}，续费沿用现有顺延规则。` : '付款后领取卡密，可用于邮箱注册开通或给已有账号兑换。请保存订单领取链接。'}</p>
-      <p className="small muted">收款页选择网络并显示准确金额，可能包含识别订单的小额尾数；请勿提前转账或自行凑整。</p>
-      <Button disabled={busy} onClick={() => void buy()}>{busy ? '创建订单…' : '确认并创建支付订单'}</Button>
-      <Button variant="ghost" disabled={busy} onClick={() => setConfirm(false)}>取消</Button>
-    </div>}
-    {error && <p role="alert">{error}</p>}
+  return <div className="purchase-control">
+    <Button onClick={() => setConfirm(true)}>购买套餐 <ArrowUpRight size={15} /></Button>
+    <Dialog open={confirm} onOpenChange={open => { if (!busy) setConfirm(open); }}>
+      <DialogContent className="purchase-dialog" showCloseButton={!busy}>
+        <DialogTitle>确认购买</DialogTitle>
+        <DialogDescription>{username ? `付款后自动充入 ${username}` : '付款后领取卡密，可开通或续费'}</DialogDescription>
+        <div className="purchase-summary"><span>{label}</span><strong>{price / 1000000}<small>USDT</small></strong></div>
+        <p className="payment-note">请按收款页的网络和准确金额转账。</p>
+        {error && <p className="payment-error" role="alert">{error}</p>}
+        <div className="payment-actions"><Button variant="outline" disabled={busy} onClick={() => setConfirm(false)}>取消</Button><Button disabled={busy} onClick={() => void buy()}>{busy ? '创建中…' : '继续支付'}<ArrowUpRight size={15} /></Button></div>
+      </DialogContent>
+    </Dialog>
   </div>;
 }
 
-const labels: Record<string, string> = { creating: '正在创建收款单', pending: '等待付款', confirming: '链上确认中', paid: '已付款，套餐到账处理中', fulfilled: '已完成', expired: '订单已过期，请勿继续付款', review: '需要管理员核对' };
+const labels: Record<string, string> = { creating: '创建中', pending: '待付款', confirming: '确认中', paid: '到账中', fulfilled: '已完成', expired: '已过期', review: '待核对' };
 export function OrdersPage({ signedIn = false, admin = false, onChanged }: { signedIn?: boolean; admin?: boolean; onChanged?: () => Promise<void> }) {
   const [page, setPage] = useState(1), [refresh, setRefresh] = useState(0);
   const [state, setState] = useState<{ key: string; data?: Listing; error?: string } | null>(null);
@@ -109,25 +114,26 @@ export function OrdersPage({ signedIn = false, admin = false, onChanged }: { sig
     try { await navigator.clipboard.writeText(location.origin + '/#/orders?order=' + order.id + '&key=' + receipt.key); setCopied(order.id); }
     catch { setCopied('复制失败，请允许剪贴板权限并保留当前页面。'); }
   }
-  return <section className="section">
-    <h1>{admin ? '支付订单' : '我的支付订单'}</h1>
-    <p className="small muted">付款以支付网关确认结果为准，返回本站不会直接判定已付款。过期后不要继续转账；已转账但未到账请提供订单号联系管理员。</p>
-    <Button variant="outline" onClick={() => setRefresh(n => n + 1)}>刷新订单</Button>
+  return <section className="payment-page">
+    <header className="page-heading"><div><h1>{admin ? '支付订单' : '我的订单'}</h1><p className="payment-note">{admin ? '查看付款与到账状态' : '付款确认后自动更新'}</p></div><Button variant="outline" onClick={() => setRefresh(n => n + 1)}><RefreshCw size={15} />刷新</Button></header>
     {error && <p role="alert">{error}</p>}
     {!data && !error && <output>正在读取订单…</output>}
     {data && !data.enabled && <p>在线支付尚未开放，已有订单记录仍可查看。</p>}
     {data?.guestError && <p role="alert">部分访客订单暂时无法读取，领取凭证仍已保留，请稍后刷新；不要重复付款。</p>}
-    {data?.items.map(order => <article className="surface" key={order.id}>
-      <h2>{order.label} · {order.amount} USDT</h2>
-      <p>{labels[order.status] || order.status}</p>
-      <p className="small muted">订单号：{order.id} · {new Date(order.created * 1000).toLocaleString()}</p>
-      {order.error && <p>{order.error}</p>}
-      {order.checkout_url && <a className="text-link" href={order.checkout_url}>前往 USDT 收款页 →</a>}
-      {!admin && !!order.guest && <div><Button variant="outline" onClick={() => void copyReceipt(order)}>复制订单领取链接</Button><p className="small muted">此链接可领取卡密，请私下保存，不要发给他人。{copied === order.id ? '已复制。' : copied.startsWith('复制失败') ? copied : ''}</p></div>}
-      {order.code && <div><label className="field">已购买的卡密<input readOnly value={order.code} /></label><a className="text-link" href={cardLink(order.code, location.origin)}>使用卡密开通或兑换 →</a></div>}
-      {admin && <p className="small muted">{order.account_id ? `账号编号：${order.account_id}` : '访客订单'} · 支付编号：{order.gateway_id || '待创建'}{order.tx_hash && ` · 交易：${order.tx_hash}`}</p>}
-    </article>)}
-    {data && !data.items.length && <p>暂无订单。访客请在创建订单的浏览器中查看，或打开保存的订单领取链接。</p>}
+    <div className="payment-list">{data?.items.map(order => <article className="payment-card" key={order.id}>
+      <div className="payment-card-heading"><h2>{order.label}</h2><span className={`payment-status payment-status-${order.status}`}>{labels[order.status] || order.status}</span></div>
+      <div className="payment-card-summary"><strong>{order.amount}<small>USDT</small></strong><time dateTime={new Date(order.created * 1000).toISOString()}>{new Date(order.created * 1000).toLocaleString()}</time></div>
+      {order.error && <p className="payment-error">{order.error}</p>}
+      {order.status === 'expired' && <p className="payment-note">订单已过期，请勿转账。</p>}
+      {(order.checkout_url || (!admin && !!order.guest)) && <div className="payment-actions">
+        {!admin && !!order.guest && <Button variant="outline" onClick={() => void copyReceipt(order)}><Copy size={14} />{copied === order.id ? '已保存链接' : '复制领取链接'}</Button>}
+        {order.checkout_url && <a className="payment-checkout" href={order.checkout_url}>去付款<ArrowUpRight size={15} /></a>}
+      </div>}
+      {!admin && !!order.guest && <p className="payment-note" role="status">{copied.startsWith('复制失败') ? copied : '付款前请保存领取链接，仅限本人使用。'}</p>}
+      {order.code && <div className="payment-code"><label className="field">卡密<input readOnly value={order.code} /></label><a className="text-link" href={cardLink(order.code, location.origin)}>立即兑换 →</a></div>}
+      <details className="payment-details"><summary>订单详情</summary><dl><dt>订单号</dt><dd>{order.id}</dd>{order.network && <><dt>支付网络</dt><dd>{order.network === 'binance' ? 'BSC' : order.network}</dd></>}{admin && <><dt>账号</dt><dd>{order.account_id || '访客'}</dd><dt>支付编号</dt><dd>{order.gateway_id || '待创建'}</dd>{order.tx_hash && <><dt>交易</dt><dd>{order.tx_hash}</dd></>}</>}</dl><p className="payment-note">已付款未到账？请提供订单号联系管理员。</p></details>
+    </article>)}</div>
+    {data && !data.items.length && <div className="payment-empty"><ReceiptText size={30} strokeWidth={1.3} /><h2>暂无订单</h2><p>{signedIn || admin ? '购买套餐后，订单会显示在这里。' : '请在购买时的浏览器查看，或打开领取链接。'}</p>{!admin && <a className="text-link" href="#/plans">查看套餐 →</a>}</div>}
     {data && data.pages > 1 && <div className="actions"><Button disabled={page === 1} onClick={() => setPage(p => p - 1)}>上一页</Button><span>{page} / {data.pages}</span><Button disabled={page >= data.pages} onClick={() => setPage(p => p + 1)}>下一页</Button></div>}
   </section>;
 }

@@ -380,11 +380,10 @@ export function PlansPage({
         <div>
           <h1>套餐与续费</h1>
         </div>
-        <Button onClick={() => navigate('redeem')}>
+        <div className="plan-heading-actions"><Button variant="outline" onClick={() => navigate('orders')}>我的订单</Button><Button onClick={() => navigate('redeem')}>
           <Ticket size={16} />
           兑换卡密
-        </Button>
-        <Button variant="outline" onClick={() => navigate('orders')}>支付订单</Button>
+        </Button></div>
       </header>
       {subscription && subscription.quota > 0 && (
         <div className="membership-strip">
@@ -429,6 +428,10 @@ export function PlansPage({
                 </li>
               </ul>
               <footer>
+                {content.payments_enabled && (p.usdt_micros || 0) > 0 ? <>
+                  <strong className="plan-online-price">{p.usdt_micros! / 1000000}<small>USDT</small></strong>
+                  <PurchaseButton planId={p.id} label={p.name} price={p.usdt_micros!} username={username} navigate={navigate} />
+                </> : <>
                 <strong>{priceText(p.price_label)}</strong>
                 {content.support.contact_url ? (
                   <a
@@ -446,9 +449,8 @@ export function PlansPage({
                   >
                     如何获取卡密 →
                   </button>
-                )}
+                )}</>}
               </footer>
-              {content.payments_enabled && (p.usdt_micros || 0) > 0 && <PurchaseButton planId={p.id} label={p.name} price={p.usdt_micros!} username={username} navigate={navigate} />}
             </article>
           ))}
         </div>

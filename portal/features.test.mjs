@@ -22,13 +22,12 @@ const support = await vite.ssrLoadModule('/portal/admin-support.tsx');
 const cards = await vite.ssrLoadModule('/portal/card-entry.tsx');
 const payments = await vite.ssrLoadModule('/portal/payments.tsx');
 const cardAdmin = await vite.ssrLoadModule('/portal/admin-cards.tsx');
-void test('payment purchase requires an explicit user action and orders explain gateway confirmation', () => {
+void test('payment purchase requires an explicit user action and orders show confirmation status', () => {
   const button = renderToStaticMarkup(React.createElement(payments.PurchaseButton, { planId: 'test', label: '测试套餐', price: 3000000, navigate: () => {} }));
-  assert.match(button, /USDT 购买/);
-  assert.match(button, /3/);
+  assert.match(button, /购买套餐/);
   assert.doesNotMatch(button, /href=/);
   const orders = renderToStaticMarkup(React.createElement(payments.OrdersPage));
-  assert.match(orders, /返回本站不会直接判定已付款/);
+  assert.match(orders, /付款确认后自动更新/);
   assert.doesNotMatch(orders, /sk_live_|whsec_/);
 });
 void test('card links keep the credential in the fragment and validate pasted values', () => {
