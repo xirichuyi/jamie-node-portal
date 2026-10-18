@@ -109,6 +109,8 @@ class StaffNotifications:
                 self.app.config['origin'],
                 action=('去处理工单', '/#/admin_tickets'),
                 footer='这是发给管理员的工单提醒，可在后台「工单」页关闭。',
+                eyebrow='工单提醒 · 管理员',
+                manage=('关闭工单邮件提醒', '/#/admin_tickets'),
             )
             sent = True
             for address in recipients:
