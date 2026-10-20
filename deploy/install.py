@@ -151,6 +151,13 @@ elif '# Jamie-Node portal:' in original:
     updated = original[:start] + new + original[end:]
 else:
     raise SystemExit('Unexpected nginx configuration; left unchanged')
+# Browsers reach the origin directly, without a CDN edge in front; HTTP/2 lets
+# the page's parallel asset and API requests share one TLS connection.
+updated = updated.replace(
+    '    listen 443 ssl;\n    server_name sub.chuyi.uk;',
+    '    listen 443 ssl http2;\n    server_name sub.chuyi.uk;',
+    1,
+)
 nginx.write_text(updated)
 try:
     run('nginx','-t')

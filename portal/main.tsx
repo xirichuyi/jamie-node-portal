@@ -263,12 +263,8 @@ function App() {
     const refresh = () => {
       if (document.visibilityState === 'visible') void loadContent();
     };
-    const timer = setInterval(refresh, 60000);
     document.addEventListener('visibilitychange', refresh);
-    return () => {
-      clearInterval(timer);
-      document.removeEventListener('visibilitychange', refresh);
-    };
+    return () => document.removeEventListener('visibilitychange', refresh);
   }, []);
   useEffect(() => {
     if (!me) return;

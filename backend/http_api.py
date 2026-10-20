@@ -89,7 +89,7 @@ class Handler(BaseHTTPRequestHandler):
         ip = self.headers.get('X-Real-IP', self.client_address[0])
         if not write and path == '/api/health':
             return self.reply(200, {'ok': True})
-        app.limit('request:' + ip, 240, 60)
+        app.limit_requests(ip)
         if write and path == '/api/payments/webhook':
             # This exact endpoint authenticates raw bytes with the merchant HMAC,
             # not browser Origin/cookies. All other writes retain the CSRF gates.

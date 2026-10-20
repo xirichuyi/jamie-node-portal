@@ -42,6 +42,8 @@ class App:
         self.wake = threading.Event()
         self.account_lifecycle_lock = threading.RLock()
         self.password_lock = threading.BoundedSemaphore(2)
+        self.request_counts = {}
+        self.request_counts_lock = threading.Lock()
         self.dummy_hash = hash_password(secrets.token_urlsafe(24))
         with self.ledger.connect() as db:
             db.executescript("""
@@ -89,6 +91,22 @@ class App:
                 ON CONFLICT(key) DO UPDATE SET count=count+1""",
                 (key, now + window),
             )
+
+    def limit_requests(self, ip, count=240, window=60):
+        """Coarse per-IP flood gate kept in memory: it runs on every request,
+        so it must not cost a database write. Security limits use limit()."""
+        now = time.monotonic()
+        with self.request_counts_lock:
+            if len(self.request_counts) > 4096:
+                self.request_counts = {
+                    k: v for k, v in self.request_counts.items() if v[1] > now
+                }
+            hits, expires = self.request_counts.get(ip, (0, 0))
+            if expires <= now:
+                hits, expires = 0, now + window
+            if hits >= count:
+                raise HttpError(429, '操作过于频繁，请稍后再试')
+            self.request_counts[ip] = (hits + 1, expires)
 
     def register(self, username, password, admin=False):
         if not isinstance(username, str) or not re.fullmatch(r'[a-zA-Z0-9_]{3,32}', username):

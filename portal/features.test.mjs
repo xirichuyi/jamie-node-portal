@@ -350,6 +350,18 @@ test('mutation boundaries prevent sharing old account reads', async () => {
     assert.deepEqual(await Promise.all([current, sameGeneration]), [{ user: null }, { user: null }]);
   } finally { globalThis.fetch = original; }
 });
+test('last reads are remembered for remounts and dropped at every mutation', async () => {
+  const original = globalThis.fetch;
+  try {
+    globalThis.fetch = async (_url, options) => Response.json(
+      options.method === 'POST' ? { ok: true } : { value: 'fresh' },
+    );
+    await apiModule.api('test/remember');
+    assert.deepEqual(apiModule.lastRead('test/remember'), { value: 'fresh' });
+    await apiModule.api('test/logout', {});
+    assert.equal(apiModule.lastRead('test/remember'), null);
+  } finally { globalThis.fetch = original; }
+});
 test('failed reads leave no rejected response cache', async () => {
   const original = globalThis.fetch;
   let calls = 0;

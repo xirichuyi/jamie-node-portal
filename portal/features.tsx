@@ -30,7 +30,7 @@ import {
   type ReactNode,
 } from 'react';
 import type { Ticket } from './account-features';
-import { api } from './api';
+import { api, lastRead } from './api';
 import { clearPendingCard, PasteCard, useCardCode } from './card-entry';
 import { NodeStatus, PageTitle } from './content';
 import { expiryLabel, ruleLabel } from './cycles';
@@ -108,7 +108,7 @@ export function useWork() {
   };
 }
 export function useData<T>(path: string, poll = 0) {
-  const [data, setData] = useState<T | null>(null),
+  const [data, setData] = useState<T | null>(() => lastRead<T>(path)),
     [error, setError] = useState('');
   const request = useRef(0);
   const reload = useCallback(async () => {
@@ -125,7 +125,8 @@ export function useData<T>(path: string, poll = 0) {
     }
   }, [path]);
   useEffect(() => {
-    setData(null);
+    // Show the last read of this page at once and refresh it in place.
+    setData(lastRead<T>(path));
     setError('');
     void reload();
     const visible = () => {
@@ -163,11 +164,11 @@ export function AccountAttention({
   username: string;
   navigate: Nav;
 }) {
+  // Email binding only changes through this account's own actions.
   const recovery = useData<{ recovery_created: number | null; email_verified?: boolean }>(
     'sessions',
-    60000,
   );
-  const tickets = useData<{ tickets: Ticket[] }>('tickets', 30000);
+  const tickets = useData<{ tickets: Ticket[] }>('tickets', 60000);
   const [dismissed, setDismissed] = useState(() => {
     try {
       return (

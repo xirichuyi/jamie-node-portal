@@ -390,7 +390,6 @@ main h3 {
   border: 1px solid var(--jamie-border);
   border-radius: 18px;
   background: var(--jamie-glass);
-  backdrop-filter: blur(18px);
   padding: 24px;
   box-shadow: 0 8px 28px rgb(40 55 45 / 3%);
 }

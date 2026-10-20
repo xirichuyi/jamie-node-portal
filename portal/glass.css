@@ -37,11 +37,19 @@
   --primary-foreground: hsl(150 12% 10%);
 }
 body {
+  background: var(--background);
+}
+/* A fixed layer stays on the compositor; background-attachment: fixed
+   repaints the whole page on every scroll frame. */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
   background:
     radial-gradient(ellipse at 100% 0%, rgb(158 182 163 / 7%), transparent 45%),
-    radial-gradient(ellipse at 0% 85%, rgb(216 189 139 / 4%), transparent 50%),
-    var(--background);
-  background-attachment: fixed;
+    radial-gradient(ellipse at 0% 85%, rgb(216 189 139 / 4%), transparent 50%);
 }
 main,
 main.wide {
@@ -90,8 +98,6 @@ h1 {
   border: 1px solid var(--border);
   border-radius: 18px;
   box-shadow: var(--jamie-shadow);
-  backdrop-filter: blur(22px) saturate(140%);
-  -webkit-backdrop-filter: blur(22px) saturate(140%);
 }
 .balance {
   padding: 24px 28px;
@@ -682,8 +688,6 @@ footer {
   border: 1px solid var(--border);
   border-radius: 14px;
   background: var(--jamie-glass);
-  backdrop-filter: blur(22px);
-  -webkit-backdrop-filter: blur(22px);
   box-shadow: var(--jamie-shadow);
 }
 .connection-panel > .section-heading,

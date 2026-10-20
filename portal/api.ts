@@ -6,17 +6,39 @@ export class ApiError extends Error {
     super(message);
   }
 }
-// Share only simultaneous reads, never cached account data or mutations.
-// Any mutation establishes a new read generation, including login/logout.
+// Share only simultaneous reads; every call still asks the server. The last
+// successful read is kept in memory so a remounted view can show it while it
+// revalidates. Any mutation, including login/logout, starts a new generation
+// and drops both.
 const pendingReads = new Map<string, Promise<unknown>>();
+const lastReads = new Map<string, unknown>();
+let generation = 0;
+function nextGeneration() {
+  generation++;
+  pendingReads.clear();
+  lastReads.clear();
+}
+export function lastRead<T>(path: string): T | null {
+  return (lastReads.get(path) as T | undefined) ?? null;
+}
 export function api<T>(path: string, data?: unknown): Promise<T> {
   if (data !== undefined) {
-    pendingReads.clear();
-    return request<T>(path, data).finally(() => pendingReads.clear());
+    nextGeneration();
+    return request<T>(path, data).finally(nextGeneration);
   }
   const existing = pendingReads.get(path);
   if (existing) return existing as Promise<T>;
-  const pending = request<T>(path).finally(() => {
+  const started = generation;
+  const pending = request<T>(path).then(
+    (result) => {
+      if (started === generation) lastReads.set(path, result);
+      return result;
+    },
+    (error) => {
+      if (started === generation) lastReads.delete(path);
+      throw error;
+    },
+  ).finally(() => {
     if (pendingReads.get(path) === pending) pendingReads.delete(path);
   });
   pendingReads.set(path, pending);

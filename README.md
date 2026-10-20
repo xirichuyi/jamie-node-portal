@@ -178,8 +178,9 @@ Python 检查使用固定版本 Ruff 与 Pylint 重复代码检测，只在开�
 Nginx 提供 HTTPS；门户仅监听 `127.0.0.1:18766`，适配器监听 `127.0.0.1:18765`。
 `/assets/` 下的版本化静态资源启用 JS/CSS gzip 压缩及一年 immutable 缓存；
 首页和 API 保持 `no-store`。部署脚本同时更新已有门户的 Nginx 配置。
-Nginx 只信任 Cloudflare 官方出口的 `CF-Connecting-IP`，按真实访客地址限流；
-直连来源不能通过伪造此请求头改变地址。官方网段维护于 `deploy/portal_runtime.py`。
+`sub.chuyi.uk` 已关闭 Cloudflare 代理，浏览器直连 Noether，Nginx 以 HTTP/2 提供门户。
+直连时按连接地址限流；Nginx 仍只在来源属于 Cloudflare 官方网段时采用 `CF-Connecting-IP`，
+直连来源不能通过伪造此请求头改变地址，重新开启代理也无需改配置。网段维护于 `deploy/portal_runtime.py`。
 部署保留最近 30 天的旧版本静态资源，避免已打开页面切换功能时加载旧脚本失败。
 Resend 发信域名为 `notify.chuyi.uk`，密钥仅存私密配置。更换域名需同步 DNS/TLS、
 Nginx、门户配置及目录元数据，不是改一个字段即可迁移。

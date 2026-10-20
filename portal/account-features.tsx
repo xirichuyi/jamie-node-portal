@@ -81,6 +81,7 @@ export function Tickets({
     if (staff || !selected) return;
     let live = true;
     const id = selected.ticket.id;
+    let seen = selected.messages.at(-1)?.id;
     const refresh = async () => {
       if (document.visibilityState !== 'visible') return;
       try {
@@ -92,8 +93,11 @@ export function Tickets({
             current?.ticket.id === id ? result : current,
           );
           const last = result.messages.at(-1);
-          if (last) await api('tickets/read', { id, message_id: last.id });
-          await reload();
+          if (last && last.id !== seen) {
+            seen = last.id;
+            await api('tickets/read', { id, message_id: last.id });
+            await reload();
+          }
         }
       } catch {
         /* Keep the user's reply draft; list polling exposes connection errors. */

@@ -61,6 +61,7 @@ export function Dashboard({
   busy: boolean;
 }) {
   const now = useNow();
+  const [nodesOpen, setNodesOpen] = useState(false);
   const resetDates = (s.billing?.packages || []).filter(p => p.next_reset && p.next_reset < p.expires && (p.status === 'active' || p.status === 'exhausted')).map(p => p.next_reset!);
   const nextReset = resetDates.length ? Math.min(...resetDates) : 0;
   // Base packages run in parallel; the latest one is when service really ends.
@@ -274,11 +275,14 @@ export function Dashboard({
               查看状态 →
             </button>
           </div>
-          <details className="service-disclosure">
+          <details
+            className="service-disclosure"
+            onToggle={(e) => setNodesOpen(e.currentTarget.open)}
+          >
             <summary>
               节点状态<span>查看节点</span>
             </summary>
-            <NodeStatus />
+            {nodesOpen && <NodeStatus />}
           </details>
           <button className="journey-row" onClick={() => navigate('tickets')}>
             <LifeBuoy size={18} />

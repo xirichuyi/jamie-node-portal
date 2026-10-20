@@ -12,7 +12,7 @@ import {
   Ticket,
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { api } from './api';
+import { api, lastRead } from './api';
 import { expiryLabel, ruleLabel, type CycleRule } from './cycles';
 import { priceText } from './experience';
 import { markNoticeRead, publicNotices } from './notice-entry';
@@ -206,7 +206,7 @@ export function Contact({
   );
 }
 export function NodeStatus() {
-  const [data, setData] = useState<Telemetry | null>(null),
+  const [data, setData] = useState<Telemetry | null>(() => lastRead('nodes')),
     [error, setError] = useState(''),
     [busy, setBusy] = useState(false);
   async function refresh() {

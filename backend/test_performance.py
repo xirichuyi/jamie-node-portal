@@ -9,6 +9,7 @@ from unittest.mock import Mock
 
 from server import App
 from errors import DomainError
+from http_types import HttpError
 from package_ledger import desired, sample, snapshot, summaries
 
 
@@ -116,6 +117,15 @@ class PerformanceTests(unittest.TestCase):
         self.statements.clear()
         self.app.session(token)
         self.assertTrue(any(sql.startswith('UPDATE session_details') for sql in self.statements))
+
+    def test_request_flood_gate_uses_no_database(self):
+        self.connections = 0
+        for _ in range(3):
+            self.app.limit_requests('203.0.113.1', count=3)
+        with self.assertRaises(HttpError):
+            self.app.limit_requests('203.0.113.1', count=3)
+        self.app.limit_requests('203.0.113.2', count=3)
+        self.assertEqual(self.connections, 0)
 
     def test_bad_sort_rejected_before_network_or_database_work(self):
         with self.assertRaises(DomainError):
