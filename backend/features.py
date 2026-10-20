@@ -484,16 +484,20 @@ class Features:
                     print('Mail worker:', type(exc).__name__, flush=True)
             time.sleep(30)
 
-    def service_status(self):
+    def service_status(self, incident_limit=10, event_limit=20):
         with self.ledger.connect() as db:
             incidents = [
                 dict(r)
-                for r in db.execute('SELECT * FROM portal_incidents ORDER BY updated DESC LIMIT 30')
+                for r in db.execute(
+                    'SELECT id,title,body,status,updated FROM portal_incidents ORDER BY updated DESC LIMIT ?',
+                    (incident_limit,),
+                )
             ]
             events = [
                 dict(r)
                 for r in db.execute(
-                    'SELECT name,status,created FROM service_events ORDER BY id DESC LIMIT 50'
+                    'SELECT name,status,created FROM service_events ORDER BY id DESC LIMIT ?',
+                    (event_limit,),
                 )
             ]
         return {**self.app.monitor.snapshot(), 'incidents': incidents, 'events': events}
@@ -571,7 +575,7 @@ class Features:
             'budgets': json.loads(cache['value']) if cache else [],
             'budgets_at': cache['updated'] if cache else 0,
             'backup_at': backup_at,
-            'status': self.service_status(),
+            'status': self.service_status(30, 50),
             'trend': self.app.users.trend(),
             'mail': {
                 'enabled': self.app.email_auth.enabled,

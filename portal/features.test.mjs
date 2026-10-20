@@ -109,7 +109,7 @@ test('package accounting exposes independent expirations without promising perpe
     packages: [{id:'one', label:'Test package',kind:'base',granted:1024,spent:0,remaining:1024,expires:2000000000,status:'active'},
       {id:'two',label:'Top up',kind:'addon',granted:1024,spent:1024,remaining:0,expires:2000000000,status:'exhausted'}],
   }));
-  assert.match(html,/最早到期或重置/);
+  assert.match(html,/扣除顺序 1/);
   assert.match(html,/加流量包/);
   assert.match(html,/已用完/);
   assert.doesNotMatch(html,/叠加流量和有效期/);
@@ -263,8 +263,8 @@ test('activation summary exposes the real quota, duration and start-time rule', 
     '100',
     'GiB',
     '30',
-    '开通成功后开始计时',
-    '验证卡密不会扣卡',
+    '开通后开始计时',
+    '不会扣卡',
   ])
     assert.ok(html.includes(value));
 });
@@ -423,6 +423,7 @@ test('home changes its primary task for new, active and expired subscribers', ()
     renderToStaticMarkup(
       React.createElement(journeys.Dashboard, {
         s,
+        incidents: [],
         username: 'Test',
         content: null,
         navigate,
@@ -460,6 +461,7 @@ test('unknown subscription usage is not labelled as usable, and quota bar descri
     renderToStaticMarkup(
       React.createElement(journeys.Dashboard, {
         s,
+        incidents: [],
         username: 'Test',
         content: null,
         navigate,

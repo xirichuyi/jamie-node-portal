@@ -278,19 +278,19 @@ class App:
             member = dict(
                 db.execute('SELECT * FROM members WHERE id=?', (account['id'],)).fetchone()
             )
-            history = [
-                dict(r)
-                for r in db.execute(
-                    """SELECT label,quota,days,kind,redeemed_at,permanent,reset_period,reset_interval
-                FROM cards WHERE redeemed_by=? ORDER BY redeemed_at DESC LIMIT 50""",
-                    (account['id'],),
-                )
-            ]
             base_plan = db.execute(
                 """SELECT label FROM cards WHERE redeemed_by=? AND kind='base'
                 ORDER BY redeemed_at DESC,id DESC LIMIT 1""",
                 (account['id'],),
             ).fetchone()
+            # Titles only: the home banner must not need the full status feed.
+            incidents = [
+                dict(r)
+                for r in db.execute(
+                    """SELECT id,title FROM portal_incidents WHERE status!='resolved'
+                    ORDER BY updated DESC LIMIT 3"""
+                )
+            ]
         used = None
         panel_enabled = None
         error = None
@@ -347,9 +347,20 @@ class App:
                 and not member['previous_sub_id']
                 else None,
             },
-            'history': history,
-            'nodes': list(self.monitor.names.values()),
+            'incidents': incidents,
         }
+
+    def redemption_history(self, account_id):
+        """Loaded only by the history views, not with every account refresh."""
+        with self.ledger.connect() as db:
+            return [
+                dict(r)
+                for r in db.execute(
+                    """SELECT label,quota,days,kind,redeemed_at,permanent,reset_period,reset_interval
+                FROM cards WHERE redeemed_by=? ORDER BY redeemed_at DESC LIMIT 50""",
+                    (account_id,),
+                )
+            ]
 
     def sync_loop(self):
         while True:

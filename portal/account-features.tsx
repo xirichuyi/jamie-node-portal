@@ -136,11 +136,7 @@ export function Tickets({
       <PageTitle
         eyebrow="SUPPORT"
         title={staff ? '工单处理' : '我的工单'}
-        description={
-          staff
-            ? '查看问题、回复用户并关闭已解决的工单。'
-            : '连接、兑换或账号问题，在这里与管理员沟通。'
-        }
+        description=""
       />
       {work.feedback}
       {!staff && <NotificationPreferences ticketOnly />}
@@ -263,7 +259,7 @@ export function Tickets({
                   required
                   maxLength={4000}
                   rows={6}
-                  placeholder="请说明设备、客户端、出现的提示和问题时间。不要发送密码或完整订阅链接。"
+                  placeholder="设备、客户端、提示文字和发生时间（不要发送密码或订阅链接）"
                 />
               </Field>
               <Button type="submit" disabled={work.busy}>
@@ -366,10 +362,7 @@ export function Tickets({
           ) : (
             <div className="empty">
               <h2>{staff ? '选择一个工单' : '有什么可以帮你？'}</h2>
-              <p>{staff ? '从左侧选择工单查看详情并回复。' : '选择左侧工单查看回复，或创建一个新问题。'}</p>
-              <p className="small muted">
-                此页每 30 秒检查回复，返回页面时也会更新。
-              </p>
+              <p className="muted">{staff ? '从左侧选择工单' : '选择左侧工单，或新建一个问题'}</p>
             </div>
           )}
         </section>
@@ -421,10 +414,10 @@ export function NotificationPreferences({ ticketOnly = false }: { ticketOnly?: b
   type Preference = 'ticket_email' | 'traffic_email' | 'expiry_email';
   const { data, reload } = useData<Record<Preference, boolean> & { available: boolean }>('notifications');
   const work = useWork();
-  const options: [Preference, string][] = ticketOnly ? [['ticket_email', '工单有新回复时邮件提醒']] : [
-    ['traffic_email', '可用流量剩余不超过 10% 时邮件提醒'],
-    ['expiry_email', '服务到期前 3 天邮件提醒（续费后的套餐会顺延，不会误报）'],
-    ['ticket_email', '工单有新回复时邮件提醒'],
+  const options: [Preference, string][] = ticketOnly ? [['ticket_email', '工单有新回复时提醒']] : [
+    ['traffic_email', '流量剩余不足 10% 时提醒'],
+    ['expiry_email', '到期前 3 天提醒'],
+    ['ticket_email', '工单有新回复时提醒'],
   ];
   return <div className="notification-preference">
     {!ticketOnly && <h2>邮件提醒</h2>}
@@ -432,7 +425,6 @@ export function NotificationPreferences({ ticketOnly = false }: { ticketOnly?: b
       const enabled = e.target.checked;
       void work.run(async () => { await api('notifications', { [field]: enabled }); await reload(); });
     }} /> {label}</label>)}
-    <p className="small muted">默认开启，可随时关闭；只发送到已验证邮箱。同一套餐或流量周期不会重复提醒。兑换成功的到账通知属于交易通知，始终发送。</p>
     {data && !data.available && <small className="muted">需绑定邮箱且邮件服务可用。</small>}
     {work.feedback}
   </div>;
@@ -442,9 +434,9 @@ function ChangeEmail({ email }: { email: string }) {
   const [next, setNext] = useState(''), [password, setPassword] = useState(''), [oldCode, setOldCode] = useState(''), [newCode, setNewCode] = useState('');
   const work = useWork();
   return <section className="section"><h2>登录邮箱</h2>
-    <p className="small muted">{email || '尚未绑定邮箱：绑定后才能收到到账、到期和流量提醒，也能用邮箱找回密码。'}</p>
+    <p className="small muted">{email || '未绑定邮箱'}</p>
     <details className="email-change-disclosure" open={!email}><summary>{email ? '更换邮箱' : '绑定邮箱'}</summary>
-    <p className="small muted">完成后使用新邮箱登录，其他登录会话和旧恢复码失效，订阅不变。</p>
+    <p className="small muted">更换后用新邮箱登录，其他设备需重新登录。</p>
     <form onSubmit={e => { e.preventDefault(); void work.run(async () => {
       await api('account/email', { email: next, password, old_code: oldCode, new_code: newCode });
       setPassword(''); window.location.reload();
@@ -503,16 +495,15 @@ export function Sessions() {
     <>
       <PageTitle
         eyebrow="SECURITY"
-        title="邮箱与账号安全"
-        description="管理登录邮箱、网站会话与找回方式。"
+        title="邮箱与登录设备"
+        description=""
       />
       {work.feedback}
       {data && <ChangeEmail email={data.email || ''} />}
       <NotificationPreferences />
       <div className="feature-split">
         <section className="section">
-          <h2>网站登录会话</h2>
-          <p className="small muted">网站登录记录，不代表代理客户端连接。</p>
+          <h2>登录设备</h2>
           {placeholder}
           {data?.sessions.map((s) => (
             <div className="session-row" key={s.id}>
@@ -533,9 +524,7 @@ export function Sessions() {
         </section>
         <section className="section">
           <h2>一次性恢复码</h2>
-          <p className="muted">
-            忘记密码时，可用用户名和恢复码自助找回。请离线保存，不要分享。
-          </p>
+          <p className="muted">忘记密码时用来找回账号，请离线保存。</p>
           <p className="small muted">
             {data?.recovery_created
               ? '上次生成：' + when(data.recovery_created)
@@ -596,7 +585,7 @@ export function Sessions() {
         <DialogContent>
           <DialogTitle>退出这个登录会话？</DialogTitle>
           <DialogDescription>
-            该浏览器需要重新登录。不会中断代理客户端的连接。
+            该设备需重新登录，不影响客户端连接。
           </DialogDescription>
           {work.feedback}
           <Button
@@ -627,7 +616,7 @@ export function Recover({ navigate }: { navigate: Nav }) {
       <PageTitle
         eyebrow="RECOVERY"
         title="找回账号"
-        description={legacy ? '使用之前保存的一次性恢复码重设密码。' : '验证注册邮箱，重新设置密码。'}
+        description=""
       />
       {work.feedback}
       {done ? (
@@ -690,7 +679,7 @@ export function Recover({ navigate }: { navigate: Nav }) {
             重设密码
           </Button>
           <p className="small muted">
-            {legacy ? '没有保存恢复码？请联系管理员协助找回。' : '无法访问注册邮箱？请联系管理员协助找回。'}不要发送密码、验证码或完整订阅链接。
+            {legacy ? '没有恢复码？' : '收不到邮件？'}请联系管理员。
           </p>
           <Contact support={undefined} compact />
         </form>

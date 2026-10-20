@@ -232,6 +232,7 @@ function Review() {
         {view === 'home' && (
           <Dashboard
             s={s}
+            incidents={[]}
             username="Jamie"
             content={catalog}
             navigate={navigate}

@@ -3,7 +3,6 @@ import React, {
   useMemo,
   useRef,
   useState,
-  type FormEvent,
   type ReactNode,
 } from 'react';
 import { createRoot } from 'react-dom/client';
@@ -12,12 +11,12 @@ import { AuthFlow } from './auth';
 import { OrdersPage } from './payments';
 import { InstallGuide } from './install';
 import { captureCardLink, pendingCard } from './card-entry';
-import { ruleLabel, FOREVER } from './cycles';
+import { ruleLabel, FOREVER, type CycleRule } from './cycle-labels';
 const UserManager = React.lazy(() =>
   import('./admin-users').then((module) => ({ default: module.UserManager })),
 );
 import { NoticeEntry } from './notice-entry';
-import { AdminShell, adminViews } from './admin-shell';
+const AdminShell = React.lazy(() => import('./admin-shell').then((m) => ({ default: m.AdminShell })));
 import { Toaster, notify } from './toast';
 const CardsWorkspace = React.lazy(() =>
   import('./admin-cards').then((module) => ({ default: module.CardsWorkspace })),
@@ -27,43 +26,18 @@ const LogsWorkspace = React.lazy(() =>
 );
 import {
   ArrowUpRight,
-  ArrowRight,
-  Globe2,
   Home,
-  KeyRound,
   LogOut,
   Moon,
-  Shield,
   Sun,
   UserRound,
   ArrowLeft,
-  ChevronRight,
   BookOpen,
   Package,
-  History,
-  LifeBuoy,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import type { PackageBalance } from './features';
-import { Progress } from '@/components/ui/progress';
-import {
-  Table,
-  TableHeader,
-  TableBody,
-  TableRow,
-  TableHead,
-  TableCell,
-} from '@/components/ui/table';
-import {
-  AlertDialog,
-  AlertDialogContent,
-  AlertDialogTitle,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogCancel,
-  AlertDialogAction,
-} from '@/components/ui/alert-dialog';
 import '@/app/globals.css';
 import './style.css';
 import './content.css';
@@ -80,11 +54,10 @@ import {
 } from './journeys';
 import {
   Connection,
-  GettingStarted,
   UsagePanel,
   Redemption,
   ServiceStatus,
-  ServiceBrief,
+  useData,
 } from './features';
 import {
   useNavigation,
@@ -93,14 +66,13 @@ import {
   authModeFor,
   afterLogin,
   showDock,
+  adminViews,
 } from './navigation';
 import { api, ApiError } from './api';
 import {
-  NodeStatus,
   Announcements,
   PlansPage,
   HelpPage,
-  Contact,
   PageTitle,
   type Catalog,
 } from './content';
@@ -127,14 +99,7 @@ type Me = {
     plan_name: string | null;
     billing?: {packages: PackageBalance[]; remaining: number; next_expiry: number} | null;
   };
-  history: {
-    label: string;
-    quota: number;
-    days: number;
-    kind?: string;
-    redeemed_at: number;
-  }[];
-  nodes: string[];
+  incidents: { id: string; title: string }[];
 };
 const gib = (bytes: number) =>
   new Intl.NumberFormat('zh-CN', { maximumFractionDigits: 2 }).format(
@@ -159,6 +124,35 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
     </label>
   );
 }
+type Redeemed = CycleRule & {
+  label: string;
+  quota: number;
+  days: number;
+  kind?: string;
+  redeemed_at: number;
+};
+// Fetched only on the history and redeem pages, not with every account refresh.
+function RedemptionHistory() {
+  const { data, placeholder } = useData<{ history: Redeemed[] }>('history');
+  if (!data) return placeholder;
+  return data.history.length ? (
+    <div className="history">
+      {data.history.map((h, i) => (
+        <div className="history-row" key={i}>
+          <div>
+            <strong>{h.label}</strong>
+            <p className="small muted">{date(h.redeemed_at)}</p>
+          </div>
+          <span>
+            +{gib(h.quota)} GiB · {h.kind === 'addon' ? '不增加天数' : ruleLabel(h)}
+          </span>
+        </div>
+      ))}
+    </div>
+  ) : (
+    <p className="empty muted">暂无记录</p>
+  );
+}
 function returningVisitor() {
   try {
     return localStorage.getItem('jamie-returning') === '1';
@@ -169,6 +163,7 @@ function returningVisitor() {
 function App() {
   const [justActivated, setJustActivated] = useState(false);
   const [memberScope, setMemberScope] = useState('all');
+  const [historyVersion, setHistoryVersion] = useState(0);
   const { view, navigate: setView, back } = useNavigation();
   const [content, setContent] = useState<Catalog | null>(null);
   const [contentError, setContentError] = useState('');
@@ -192,12 +187,7 @@ function App() {
     [loaded, setLoaded] = useState(false),
     [busy, setBusy] = useState(false),
     [notice, setNotice] = useState(''),
-    [error, setError] = useState(''),
-    [confirm, setConfirm] = useState<{
-      title: string;
-      text: string;
-      run: () => Promise<void>;
-    } | null>(null);
+    [error, setError] = useState('');
   // Follow the system appearance until the visitor picks one with the toggle.
   const systemDark = () =>
     typeof matchMedia !== 'undefined' && matchMedia('(prefers-color-scheme: dark)').matches;
@@ -366,17 +356,6 @@ function App() {
     setNotice('');
   }
   const s = me?.subscription;
-  const status = !s?.quota
-    ? '尚未开通'
-    : s.pending
-      ? '同步中'
-      : s.expires * 1000 < Date.now()
-        ? '已到期'
-        : s.used !== null && s.used >= s.quota
-          ? '流量已用完'
-          : s.enabled === false
-            ? '已暂停'
-            : '已开通';
   return (
     <>
       <header className="brand">
@@ -441,12 +420,9 @@ function App() {
             </button>
           </div>
         )}
-        <React.Suspense fallback={<p role="status">正在加载页面…</p>}>
+        <React.Suspense fallback={<p className="muted" role="status">加载中…</p>}>
         {!loaded && !['plans', 'guide', 'help', 'notices', 'recover', 'orders'].includes(view) ? (
-          <section className="intro">
-            <p className="eyebrow">JAMIE-NODE</p>
-            <h1>正在读取你的订阅</h1>
-          </section>
+          <p className="muted" role="status">加载中…</p>
         ) : !me &&
           !['plans', 'guide', 'help', 'notices', 'recover', 'orders'].includes(view) ? (
           <AuthFlow
@@ -542,9 +518,6 @@ function App() {
                         ? '账号已开通，正在准备订阅'
                         : '账号已开通，开始连接你的设备'}
                     </strong>
-                    <p className="small muted">
-                      先安装客户端，订阅就绪后即可导入。建议稍后保存恢复码，方便找回账号。
-                    </p>
                     <button
                       className="text-link"
                       onClick={() => navigate('sessions')}
@@ -565,17 +538,14 @@ function App() {
             )}
             {view === 'notices' && (
               <>
-                <PageTitle
-                  eyebrow=""
-                  title="公告"
-                  description="维护通知与服务动态。"
-                />
+                <PageTitle eyebrow="" title="公告" description="" />
                 <Announcements notices={content?.notices || []} />
               </>
             )}
             {view === 'home' && s && me && (
               <Dashboard
                 s={s}
+                incidents={me.incidents}
                 username={me.user.username}
                 content={content}
                 navigate={navigate}
@@ -589,11 +559,7 @@ function App() {
             )}
             {view === 'subscription' && s && (
               <>
-                <PageTitle
-                  eyebrow=""
-                  title="连接与订阅"
-                  description="常用连接方式与订阅安全设置。"
-                />
+                <PageTitle eyebrow="" title="连接与订阅" description="" />
                 <div className="subscription-layout">
                   <Connection
                     s={s}
@@ -603,10 +569,7 @@ function App() {
                     }}
                   />
                   <aside className="subscription-help">
-                    <h2>在其他设备上使用</h2>
-                    <p className="muted">
-                      扫描二维码或复制链接，在对应客户端添加订阅。
-                    </p>
+                    <h2>其他设备</h2>
                     <button
                       className="text-link"
                       onClick={() => navigate('guide')}
@@ -614,10 +577,7 @@ function App() {
                       按设备查看教程 →
                     </button>
                     <hr />
-                    <h2>链接泄露怎么办？</h2>
-                    <p className="muted">
-                      在订阅安全中重置链接，再为你的设备重新导入。已导入节点的访问凭证泄露，请联系管理员处理。
-                    </p>
+                    <h2>遇到问题</h2>
                     <button
                       className="text-link"
                       onClick={() => navigate('tickets')}
@@ -633,6 +593,7 @@ function App() {
                 subscription={me.subscription}
                 onChanged={async () => {
                   await load();
+                  setHistoryVersion((v) => v + 1);
                 }}
                 navigate={navigate}
               />
@@ -640,31 +601,11 @@ function App() {
             {(view === 'redeem' || view === 'history') && me && (
               <>
                 {view === 'history' && (
-                  <PageTitle
-                    eyebrow=""
-                    title="兑换记录"
-                    description="已兑换到当前账号的卡密。"
-                  />
+                  <PageTitle eyebrow="" title="兑换记录" description="" />
                 )}
                 <section className="section">
                   {view === 'redeem' && <h2>兑换记录</h2>}
-                  {me.history.length ? (
-                    <div className="history">
-                      {me.history.map((h, i) => (
-                        <div className="history-row" key={i}>
-                          <div>
-                            <strong>{h.label}</strong>
-                            <p className="small muted">{date(h.redeemed_at)}</p>
-                          </div>
-                          <span>
-                            +{gib(h.quota)} GiB · {h.kind === 'addon' ? '不增加天数' : ruleLabel(h)}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="empty muted">尚无兑换记录。</p>
-                  )}
+                  <RedemptionHistory key={historyVersion} />
                 </section>
               </>
             )}
@@ -696,9 +637,7 @@ function App() {
                   </p>
                 </section>
                 {me.user.must_change && (
-                  <p className="message">
-                    请先修改初始密码，之后即可使用全部功能。
-                  </p>
+                  <p className="message">请先修改初始密码。</p>
                 )}
                 <section className="surface">
                   <h2>修改密码</h2>
@@ -718,7 +657,7 @@ function App() {
                         });
                         form.reset();
                         await load();
-                        setNotice('密码已更新，其他设备的登录已失效。');
+                        setNotice('密码已更新，其他设备需重新登录');
                       });
                     }}
                   >
@@ -808,33 +747,6 @@ function App() {
         </DockViewport>
       )}
       <Toaster />
-      <AlertDialog
-        open={!!confirm}
-        onOpenChange={(open) => {
-          if (!open) setConfirm(null);
-        }}
-      >
-        <AlertDialogContent>
-          <AlertDialogTitle>{confirm?.title}</AlertDialogTitle>
-          <AlertDialogDescription>{confirm?.text}</AlertDialogDescription>
-          <AlertDialogFooter>
-            <AlertDialogCancel>取消</AlertDialogCancel>
-            <AlertDialogAction
-              disabled={busy}
-              onClick={() => {
-                const action = confirm;
-                void act(async () => {
-                  await action?.run();
-                  setConfirm(null);
-                  setNotice('操作已完成');
-                });
-              }}
-            >
-              确认
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </>
   );
 }

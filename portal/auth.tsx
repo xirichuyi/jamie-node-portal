@@ -6,7 +6,7 @@ import { Contact } from './content';
 import { api, ApiError } from './api';
 import { EmailCode } from './email-code';
 import { PasteCard, useCardCode, clearPendingCard, pendingCard } from './card-entry';
-import { ruleLabel, type CycleRule } from './cycles';
+import { ruleLabel, type CycleRule } from './cycle-labels';
 
 type Preview = CycleRule & { label: string; quota: number; days: number };
 export function ActivationSummary({ plan }: { plan: Preview }) {
@@ -20,7 +20,7 @@ export function ActivationSummary({ plan }: { plan: Preview }) {
         GiB · {ruleLabel(plan)}
       </span>
       <p className="small muted">
-        开通成功后开始计时，验证卡密不会扣卡。
+        开通后开始计时，此前不会扣卡。
       </p>
     </div>
   );
@@ -85,7 +85,7 @@ export function AuthFlow({
           (e.status === 0 || e.status >= 500) &&
           signup &&
           plan
-          ? '暂未确认开通结果。请保留当前信息重试确认，系统不会重复扣卡；也可以用刚设置的账号密码登录。'
+          ? '开通结果未确认，请重试（不会重复扣卡），或直接用刚设置的账号登录。'
           : e instanceof Error
             ? e.message
             : '暂时无法完成，请重试',
@@ -111,9 +111,6 @@ export function AuthFlow({
       </h1>
       {complete ? (
         <>
-          <p className="muted">
-            账号操作已成功，无需再次开通。继续查看你的订阅。
-          </p>
           <Button disabled={busy} onClick={() => void onSuccess(signup)}>
             继续进入
           </Button>
@@ -125,17 +122,10 @@ export function AuthFlow({
               <li aria-current={!plan ? 'step' : undefined}>1 验证卡密</li>
               <li aria-current={plan ? 'step' : undefined}>2 验证邮箱并开通</li>
             </ol>
-          ) : (
-            <p className="muted">登录，继续你的连接。</p>
-          )}
+          ) : null}
           {!!pendingCard() && !plan && (
             <div className="card-link-hint" role="status">
-              <strong>已收到兑换链接中的卡密</strong>
-              <span className="small muted">
-                {signup
-                  ? '卡密已自动填好，点击下方按钮验证即可开通。'
-                  : '登录后会自动进入兑换页，确认后充入你的账号。'}
-              </span>
+              <strong>已填入兑换链接中的卡密</strong>
               <button className="text-link" disabled={busy} onClick={() => navigate(signup ? 'login' : 'register')}>
                 {signup ? '已有账号？登录后兑换 →' : '还没有账号？用这张卡开通 →'}
               </button>
@@ -266,11 +256,6 @@ export function AuthFlow({
               </button>
             )}
           </div>
-          {signup && (
-            <p className="small muted">
-              已有账号需续费？请先登录，再兑换卡密。
-            </p>
-          )}
         </>
       )}
       <Contact support={undefined} compact />

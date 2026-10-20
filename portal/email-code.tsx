@@ -23,7 +23,7 @@ export function EmailCode({ email, purpose, card, value, onChange, password }: {
       try {
         await api(purpose.startsWith('change_') ? 'account/email/code' : 'email/code', { email, purpose, code: card, password });
         setUntil(Date.now() + 60000); setNow(Date.now());
-        setMessage('符合条件的邮箱将收到验证码，10 分钟内有效；未收到请检查垃圾箱。');
+        setMessage('验证码已发送，10 分钟内有效，未收到请查看垃圾箱');
       } catch (e) { setMessage(e instanceof Error ? e.message : '发送失败，请稍后重试'); }
       finally { setBusy(false); }
     }}>{busy ? '发送中…' : seconds ? `${seconds} 秒后重发` : '发送验证码'}</Button>

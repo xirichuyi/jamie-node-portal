@@ -10,7 +10,7 @@ export function parseCard(value: string): string {
     if (!url.hash.startsWith('#/redeem?')) throw new Error('这不是兑换链接');
     code = new URLSearchParams(url.hash.split('?')[1]).get('code') || '';
   }
-  if (!/^[a-fA-F0-9]{32}$/.test(code.replace(/[- ]/g, ''))) throw new Error('未识别到卡密，请手动粘贴管理员提供的卡密');
+  if (!/^[a-fA-F0-9]{32}$/.test(code.replace(/[- ]/g, ''))) throw new Error('未识别到卡密，请手动粘贴');
   return code;
 }
 export function captureCardLink() {
@@ -41,11 +41,11 @@ export function PasteCard({ onCode, disabled }: { onCode: (code: string) => void
   return <>
     <Button type="button" variant="outline" disabled={disabled} onClick={() => {
       setMessage('');
-      if (!navigator.clipboard?.readText) { setMessage('浏览器不支持读取剪贴板，请长按输入框粘贴。'); return; }
+      if (!navigator.clipboard?.readText) { setMessage('无法读取剪贴板，请手动粘贴'); return; }
       void navigator.clipboard.readText().then(text => {
         onCode(parseCard(text));
-        setMessage('已填入卡密，请查看套餐后确认。');
-      }).catch(() => setMessage('无法读取或识别剪贴板，请长按输入框粘贴卡密。'));
+        setMessage('已填入卡密');
+      }).catch(() => setMessage('无法读取剪贴板，请手动粘贴'));
     }}>从剪贴板粘贴卡密或兑换链接</Button>
     {message && <output className="small muted">{message}</output>}
   </>;

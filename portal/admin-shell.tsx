@@ -12,15 +12,7 @@ import {
 import { api } from './api';
 
 type Badges = { tickets: number; sync_errors: number; pending: number };
-export const adminViews = [
-  'operations',
-  'admin_users',
-  'admin',
-  'admin_tickets',
-  'admin_content',
-  'admin_logs',
-  'admin_orders',
-];
+export { adminViews } from './navigation';
 const items = [
   { id: 'operations', label: '概览', Icon: LayoutDashboard },
   { id: 'admin_users', label: '用户', Icon: Users },

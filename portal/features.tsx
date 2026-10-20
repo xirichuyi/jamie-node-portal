@@ -7,13 +7,6 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
-import {
   Table,
   TableBody,
   TableCell,
@@ -32,8 +25,8 @@ import {
 import type { Ticket } from './account-features';
 import { api, lastRead } from './api';
 import { clearPendingCard, PasteCard, useCardCode } from './card-entry';
-import { NodeStatus, PageTitle } from './content';
-import { expiryLabel, ruleLabel } from './cycles';
+import { NodeStatus, PageTitle, type Telemetry } from './content';
+import { expiryLabel, ruleLabel } from './cycle-labels';
 import { remainingAfter } from './experience';
 
 export type Nav = (view: string) => void;
@@ -51,7 +44,6 @@ export function PackageBalances({ packages }: { packages: PackageBalance[] }) {
   const active = packages.filter(p => p.status === 'active');
   return <section className="surface">
     <h2>套餐与流量包</h2>
-    <p className="small muted">优先使用最早到期或重置的额度。周期额度不结转；加流量包随所属套餐当前周期到期，不延长时间。</p>
     {!!active.length && <p className="small">当前优先扣除：{active[0].label}</p>}
     <div className="package-detail-list">{packages.map(p => <article className="package-detail-row" key={p.id}>
       <div><strong>{p.label}</strong><small className="sync-caption">{p.kind === 'addon' ? '加流量包' : p.kind === 'transition' ? '原有剩余额度' : '独立套餐'} · {{active:'有效',expired:'已到期',exhausted:'已用完',revoked:'已撤销'}[p.status] || p.status}{p.status === 'active' ? ` · 扣除顺序 ${active.indexOf(p) + 1}` : ''}</small>
@@ -185,7 +177,7 @@ export function AccountAttention({
     <div className="account-attention">
       {recovery.data && !recovery.data.email_verified && !dismissed && (
         <div className="journey-alert">
-          <span>还没有绑定邮箱：绑定后可收到兑换到账、服务到期和流量不足提醒，忘记密码也能找回。</span>
+          <span>未绑定邮箱：收不到到期提醒，也无法找回密码。</span>
           <div className="actions">
             <button className="text-link" onClick={() => navigate('sessions')}>
               去绑定邮箱 →
@@ -243,29 +235,20 @@ export function Choice({
   options: Record<string, string>;
   onChange?: (value: string) => void;
 }) {
-  const [value, setValue] = useState(initial);
+  // Native select: the system picker on phones, and no popup library to load.
   return (
-    <Select
+    <select
       name={name}
-      value={value}
-      onValueChange={(v) => {
-        if (v) {
-          setValue(String(v));
-          onChange?.(String(v));
-        }
-      }}
+      aria-label={label}
+      defaultValue={initial}
+      onChange={(e) => onChange?.(e.target.value)}
     >
-      <SelectTrigger aria-label={label} className="w-full">
-        <SelectValue>{options[value]}</SelectValue>
-      </SelectTrigger>
-      <SelectContent>
-        {Object.entries(options).map(([key, title]) => (
-          <SelectItem key={key} value={key}>
-            {title}
-          </SelectItem>
-        ))}
-      </SelectContent>
-    </Select>
+      {Object.entries(options).map(([key, title]) => (
+        <option key={key} value={key}>
+          {title}
+        </option>
+      ))}
+    </select>
   );
 }
 export function GettingStarted({
@@ -414,9 +397,6 @@ export function Connection({
               二维码
             </Button>
           </div>
-          {!compact && <p className="small muted">
-            未安装客户端？先查看下载教程。
-          </p>}
           {compact ? (
             <button
               className="text-link connection-more"
@@ -438,9 +418,6 @@ export function Connection({
                   Android
                 </Button>
               </div>
-              <p className="small muted">
-                Clash 含国内直连、国外代理规则。小火箭使用客户端内的分流配置。
-              </p>
               <div className="subscription-secret">
                 <code>{visible ? url : '••••••••••••••••••••••••'}</code>
                 <button
@@ -492,7 +469,7 @@ export function Connection({
         <DialogContent>
           <DialogTitle>订阅二维码</DialogTitle>
           <DialogDescription>
-            用客户端扫码导入。二维码包含访问凭证，请勿公开分享。
+            用客户端扫码导入，请勿分享。
           </DialogDescription>
           {qr && (
             <img
@@ -518,8 +495,8 @@ export function Connection({
           </DialogTitle>
           <DialogDescription>
             {resetCredentials
-              ? '将同时更换订阅链接与节点密码，额度和到期时间不变。同步完成后，所有设备必须删除旧节点并重新导入。同步期间可能短暂断开，已建立的连接是否立即断开取决于节点内核。'
-              : '旧链接会失效，你需要在所有客户端重新导入。已导入的节点凭据不会因此失效；如已泄露，请取消并选择“更换连接凭据”。'}
+              ? '订阅链接和节点密码都会更换，额度与到期不变。完成后所有设备需删除旧节点、重新导入。'
+              : '旧链接失效，所有设备需重新导入；已导入的节点仍可用。凭据泄露请改用「更换连接凭据」。'}
           </DialogDescription>
           {work.feedback}
           <form
@@ -575,7 +552,7 @@ export function UsagePanel({
   compact?: boolean;
   navigate: Nav;
 }) {
-  const { data, placeholder } = useData<Usage>('usage');
+  const { data, placeholder } = useData<Usage>(compact ? 'usage?days=7' : 'usage');
   const days = usageWindow(data?.days || [], compact);
   return (
     <section className="section usage-panel">
@@ -686,7 +663,7 @@ export function Redemption({
       <PageTitle
         eyebrow="REDEEM"
         title="兑换卡密"
-        description="先确认套餐，再充入你的账号。"
+        description=""
       />
       <section className="surface feature-form">
         {work.feedback}
@@ -744,18 +721,18 @@ export function Redemption({
                   setCode(e.target.value);
                   setPreview(null);
                 }}
-                placeholder="输入管理员发放的卡密"
+                placeholder="输入卡密"
                 disabled={work.busy}
               />
             </Field>
             {preview ? (
               <div className="redemption-preview">
                 <h2>{preview.label}</h2>
-                {preview.kind === 'addon' && <Field label="选择要增加流量的套餐">
-                  <Select value={target} onValueChange={value => { setTarget(value || ''); setPreview({...preview, after_expires:preview.targets?.find(p => p.id===value)?.expires || 0}); }}>
-                    <SelectTrigger><SelectValue placeholder="请选择有效套餐">{(() => { const p = preview.targets?.find(p => p.id === target); return p ? `${p.label} · ${expiryDate(p.expires)} 到期` : '请选择有效套餐'; })()}</SelectValue></SelectTrigger>
-                    <SelectContent>{preview.targets?.map(p => <SelectItem key={p.id} value={p.id}>{p.label} · {expiryDate(p.expires)} 到期</SelectItem>)}</SelectContent>
-                  </Select>
+                {preview.kind === 'addon' && <Field label="加到哪个套餐">
+                  <select value={target} onChange={e => { const value = e.target.value; setTarget(value); setPreview({...preview, after_expires:preview.targets?.find(p => p.id===value)?.expires || 0}); }}>
+                    <option value="" disabled>请选择套餐</option>
+                    {preview.targets?.map(p => <option key={p.id} value={p.id}>{p.label} · {expiryDate(p.expires)} 到期</option>)}
+                  </select>
                 </Field>}
                 <dl>
                   <div>
@@ -784,7 +761,7 @@ export function Redemption({
                   </div>
                 </dl>
                 <p className="small muted">
-                  {preview.package_billing ? '有效套餐未到期时，新套餐接在其后计时，流量兑换后立即可用。加流量卡跟随所选套餐到期。' : '已用流量不清零。'}确认后卡密将绑定当前账号，不可转让。
+                  {preview.kind === 'addon' ? '加流量卡随所选套餐到期。' : ''}确认后卡密绑定当前账号，不可转让。
                 </p>
                 <Button
                   type="button"
@@ -828,13 +805,17 @@ export type Incident = {
   status: string;
   updated: number;
 };
-export type Status = {
+export type Status = Telemetry & {
   incidents: Incident[];
   events: { name: string; status: string; created: number }[];
 };
-export function ServiceBrief({ navigate }: { navigate: Nav }) {
-  const { data } = useData<Status>('service-status');
-  const active = data?.incidents.filter((i) => i.status !== 'resolved') || [];
+export function ServiceBrief({
+  incidents: active,
+  navigate,
+}: {
+  incidents: { id: string; title: string }[];
+  navigate: Nav;
+}) {
   if (!active.length) return null;
   return (
     <div className="account-alert" role="status">
@@ -859,22 +840,18 @@ export const states: Record<string, string> = {
   resolved: '已恢复',
 };
 export function ServiceStatus() {
-  const { data, placeholder } = useData<Status>('service-status');
+  const { data, reload, placeholder } = useData<Status>('service-status');
   return (
     <>
-      <PageTitle
-        eyebrow="SERVICE"
-        title="服务状态"
-        description="节点状态、维护安排与最近变化。"
-      />
+      <PageTitle eyebrow="SERVICE" title="服务状态" description="" />
       <div className="feature-split">
         <div>
-          <NodeStatus />
+          <NodeStatus telemetry={data} onRefresh={reload} />
           <section className="section">
             <h2>维护与事件</h2>
             {placeholder}
             {data && !data.incidents.length && (
-              <p className="muted">暂无维护事件。</p>
+              <p className="muted">暂无维护</p>
             )}
             {data?.incidents.map((i) => (
               <article className="incident" key={i.id}>
@@ -888,12 +865,9 @@ export function ServiceStatus() {
           </section>
         </div>
         <section className="section">
-          <h2>节点状态记录</h2>
-          <p className="small muted">
-            仅反映面板报告的状态，不代表端到端连接测速。
-          </p>
+          <h2>状态记录</h2>
           {data && !data.events.length && (
-            <p className="empty">开始监测后会显示状态变化。</p>
+            <p className="empty muted">暂无记录</p>
           )}
           {data?.events.map((e, i) => (
             <div className="event-row" key={i}>

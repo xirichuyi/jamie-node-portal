@@ -131,3 +131,13 @@ export function useNavigation() {
   }, [view]);
   return { view, navigate, back };
 }
+// Routing needs the admin view list; the admin shell itself loads on demand.
+export const adminViews = [
+  'operations',
+  'admin_users',
+  'admin',
+  'admin_tickets',
+  'admin_content',
+  'admin_logs',
+  'admin_orders',
+];

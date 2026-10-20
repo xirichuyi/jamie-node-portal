@@ -193,6 +193,14 @@ class FeatureTests(unittest.TestCase):
             self.account, {'id': iid, 'title': '维护完成', 'body': '已恢复', 'status': 'resolved'}
         )
         self.assertEqual(self.f.service_status()['incidents'][0]['status'], 'resolved')
+        open_id = self.f.incident_save(
+            self.account, {'title': '排查中', 'body': '正在处理', 'status': 'investigating'}
+        )['id']
+        overview = self.app.overview(self.app.session(self.app.new_session(self.account['id'])))
+        # The home banner gets active titles only; history loads on its own page.
+        self.assertEqual(overview['incidents'], [{'id': open_id, 'title': '排查中'}])
+        self.assertNotIn('history', overview)
+        self.assertNotIn('nodes', overview)
         ops = self.f.operations()
         self.assertEqual(ops['counts']['users'], 2)
         self.assertIsNone(ops['backup_at'])
@@ -236,8 +244,9 @@ class FeatureHTTPTests(unittest.TestCase):
             'login', {'username': 'http_user', 'password': 'HTTP-password-123'}
         )
         self.assertEqual(status, 200)
-        for path in ('usage', 'sessions', 'tickets', 'service-status'):
+        for path in ('usage', 'sessions', 'tickets', 'service-status', 'history'):
             self.assertEqual(self.call(path, cookie=cookie)[0], 200)
+        self.assertEqual(len(self.call('usage?days=7', cookie=cookie)[1]['days']), 7)
         for path in ('admin/operations', 'admin/tickets'):
             self.assertEqual(self.call(path, cookie=cookie)[0], 403)
         self.assertEqual(self.call('admin/incident', {}, cookie)[0], 403)

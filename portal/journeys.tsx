@@ -15,7 +15,6 @@ import {
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
-import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { NodeStatus, type Catalog } from './content';
 import {
   AccountAttention,
@@ -47,6 +46,7 @@ const deadline = (n: number) =>
     : '尚未开通';
 export function Dashboard({
   s,
+  incidents,
   username,
   content,
   navigate,
@@ -54,6 +54,7 @@ export function Dashboard({
   busy,
 }: {
   s: Subscription;
+  incidents: { id: string; title: string }[];
   username: string;
   content: Catalog | null;
   navigate: Nav;
@@ -80,7 +81,6 @@ export function Dashboard({
     <div className="journey-dashboard">
       <header className="page-heading">
         <div>
-          <p className="context-label">订阅概览</p>
           <h1>
             {!hasEntitlements ? '开通订阅' : inactive ? '订阅需要处理' : '我的订阅'}
           </h1>
@@ -89,13 +89,12 @@ export function Dashboard({
           刷新状态
         </Button>
       </header>
-      <ServiceBrief navigate={navigate} />
+      <ServiceBrief incidents={incidents} navigate={navigate} />
       {!hasEntitlements ? (
         <section className="welcome-flow">
           <div>
             <span className="step-caption">01 / 开通订阅</span>
             <h2>有卡密，即可开始</h2>
-            <p className="muted">兑换后安装客户端，再导入你的专属订阅。</p>
             <div className="actions">
               <Button onClick={() => navigate('redeem')}>
                 兑换卡密 <ArrowRight size={16} />
@@ -110,14 +109,12 @@ export function Dashboard({
               <span>1</span>
               <div>
                 <strong>兑换卡密</strong>
-                <small>流量和有效期充入当前账号</small>
               </div>
             </li>
             <li>
               <span>2</span>
               <div>
                 <strong>安装客户端</strong>
-                <small>按手机或电脑选择对应版本</small>
               </div>
               <button className="text-link" onClick={() => navigate('guide')}>
                 去下载
@@ -127,7 +124,6 @@ export function Dashboard({
               <span>3</span>
               <div>
                 <strong>导入并连接</strong>
-                <small>开通后，首页会显示导入按钮</small>
               </div>
             </li>
           </ol>
@@ -228,7 +224,7 @@ export function Dashboard({
                   </Button>
                   {!(s.enabled === false && days > 0 && remaining !== 0) && (
                     <button className="text-link" onClick={() => navigate('plans')}>
-                      还没有卡密？查看套餐与获取方式 →
+                      查看套餐 →
                     </button>
                   )}
                   <button
@@ -263,7 +259,7 @@ export function Dashboard({
             <div className="section">
               <div className="section-heading"><h2>开始使用</h2></div>
               <button className="journey-row" onClick={() => navigate('guide')}>
-                <Monitor size={18} /><span><strong>连接指南</strong><small>下载、导入，开始连接</small></span><ChevronRight size={16} />
+                <Monitor size={18} /><span><strong>连接指南</strong></span><ChevronRight size={16} />
               </button>
             </div>
           )}
@@ -288,7 +284,6 @@ export function Dashboard({
             <LifeBuoy size={18} />
             <span>
               <strong>联系支持</strong>
-              <small>提交问题，查看回复</small>
             </span>
             <ChevronRight size={16} />
           </button>
@@ -316,25 +311,25 @@ export function AccountHub({
     {
       title: '我的订阅',
       items: [
-        ['subscription', '连接与订阅', '导入设备、二维码、链接管理', Globe2],
-        ['usage', '用量明细', '最近 30 天的流量记录', BarChart3],
-        ['history', '兑换记录', '查看卡密到账记录', History],
-        ['orders', '支付订单', 'USDT 付款与到账状态', History],
+        ['subscription', '连接与订阅', Globe2],
+        ['usage', '用量明细', BarChart3],
+        ['history', '兑换记录', History],
+        ['orders', '支付订单', History],
       ],
     },
     {
       title: '支持与帮助',
       items: [
-        ['tickets', '我的工单', '提交问题、查看回复', LifeBuoy],
-        ['help', '常见问题', '连接与兑换问题解答', LifeBuoy],
-        ['status', '服务状态', '维护安排与节点动态', Globe2],
+        ['tickets', '我的工单', LifeBuoy],
+        ['help', '常见问题', LifeBuoy],
+        ['status', '服务状态', Globe2],
       ],
     },
     {
       title: '账号安全',
       items: [
-        ['security', '登录密码', '修改当前密码', KeyRound],
-        ['sessions', '邮箱与账号安全', '更换邮箱、管理登录设备', Shield],
+        ['security', '登录密码', KeyRound],
+        ['sessions', '邮箱与登录设备', Shield],
       ],
     },
   ];
@@ -361,7 +356,7 @@ export function AccountHub({
           <strong>{s.plan_name || '尚未开通'}</strong>
         </div>
         <div>
-          <span className="muted">{s.billing ? '最近一份额度到期' : '有效期至'}</span>
+          <span className="muted">{s.billing ? '最近到期' : '有效期至'}</span>
           <strong>{deadline(s.expires)}</strong>
         </div>
         <Button variant="outline" onClick={() => navigate('redeem')}>
@@ -373,7 +368,7 @@ export function AccountHub({
         {groups.map((g) => (
           <section key={g.title}>
             <h2>{g.title}</h2>
-            {g.items.map(([id, label, hint, Icon]) => {
+            {g.items.map(([id, label, Icon]) => {
               const Symbol = Icon as typeof Globe2;
               return (
                 <button
@@ -384,7 +379,6 @@ export function AccountHub({
                   <Symbol size={18} />
                   <span>
                     <strong>{String(label)}</strong>
-                    <small>{String(hint)}</small>
                   </span>
                   <ChevronRight size={16} />
                 </button>
@@ -399,7 +393,6 @@ export function AccountHub({
             <Shield size={20} />
             <div>
               <h2>管理工作台</h2>
-              <p className="muted">运营状态、发卡、用户与工单</p>
             </div>
           </div>
           <Button variant="outline" onClick={() => navigate('operations')}>
@@ -445,41 +438,36 @@ const clients = {
     name: 'Windows',
     client: 'Clash Verge Rev',
     url: 'https://www.clashverge.dev/install.html',
-    install: '下载 Windows 安装包。通常选择 x64；ARM 设备选择 arm64。',
-    connect: '启用 Jamie-Node 配置，选择「规则」模式，再打开「系统代理」。',
+    install: '通常选 x64，ARM 设备选 arm64。',
+    connect: '启用 Jamie-Node 配置，选「规则」模式，打开「系统代理」。',
   },
   mac: {
     name: 'macOS',
     client: 'Clash Verge Rev',
     url: 'https://www.clashverge.dev/install.html',
-    install:
-      '在「关于本机」查看芯片。Apple 芯片选择 Apple Silicon，Intel 芯片选择 Intel；将应用拖入「应用程序」。',
-    connect: '启用 Jamie-Node 配置，选择「规则」模式，再打开「系统代理」。',
+    install: 'Apple 芯片选 Apple Silicon，Intel 芯片选 Intel。',
+    connect: '启用 Jamie-Node 配置，选「规则」模式，打开「系统代理」。',
   },
   ios: {
     name: 'iPhone / iPad',
     client: 'Shadowrocket',
     url: 'https://apps.apple.com/app/shadowrocket/id932747118',
-    install:
-      '使用自己的 Apple 账号购买正版 Shadowrocket。软件费用不包含在订阅中；是否可下载取决于商店地区。',
-    connect:
-      '选择一个地区，开启连接并允许添加 VPN 配置。在「全局路由」选择「配置」，使用客户端内的分流规则。',
+    install: '用你自己的 Apple 账号购买，部分商店地区不可下载。',
+    connect: '选一个地区开启连接，「全局路由」选「配置」。',
   },
   android: {
     name: 'Android',
     client: 'Clash Meta for Android',
     url: 'https://github.com/MetaCubeX/ClashMetaForAndroid/releases/latest',
-    install:
-      'Android 7 及以上。从官方 Assets 下载 APK，多数手机选择 arm64-v8a；安装后可关闭浏览器的安装权限。',
-    connect:
-      '启用 Jamie-Node 配置，选择「规则」模式，点击启动并允许 VPN 请求。',
+    install: '多数手机下载 arm64-v8a 版 APK（需 Android 7+）。',
+    connect: '启用 Jamie-Node 配置，选「规则」模式，点击启动。',
   },
   linux: {
     name: 'Linux',
     client: 'Clash Verge Rev',
     url: 'https://www.clashverge.dev/install.html',
-    install: '根据发行版和处理器架构，按照官方说明安装对应软件包。',
-    connect: '启用 Jamie-Node 配置，选择「规则」模式，再打开系统代理。',
+    install: '按发行版和架构安装对应软件包。',
+    connect: '启用 Jamie-Node 配置，选「规则」模式，打开系统代理。',
   },
 };
 type Device = keyof typeof clients;
@@ -532,29 +520,26 @@ export function DeviceGuide({
       <header className="page-heading">
         <div>
           <h1>在你的设备上连接</h1>
-          <p className="muted">选择设备，跟着三步完成设置。</p>
         </div>
         <button className="text-link" onClick={() => navigate('help')}>
           连接排查 →
         </button>
       </header>
-      <Tabs
-        value={selected}
-        onValueChange={(v) => {
-          setSelected(v as Device);
-          setStep(0);
-          setMessage('');
-        }}
-        className="device-picker"
-      >
-        <TabsList>
-          {Object.entries(clients).map(([id, c]) => (
-            <TabsTrigger key={id} value={id}>
-              {c.name}
-            </TabsTrigger>
-          ))}
-        </TabsList>
-      </Tabs>
+      <div className="device-picker" role="group" aria-label="选择设备">
+        {Object.entries(clients).map(([id, c]) => (
+          <button
+            key={id}
+            aria-pressed={selected === id}
+            onClick={() => {
+              setSelected(id as Device);
+              setStep(0);
+              setMessage('');
+            }}
+          >
+            {c.name}
+          </button>
+        ))}
+      </div>
       <div className="guided-workspace">
         <nav className="guide-step-nav" aria-label="连接步骤">
           {steps.map((s, i) => (
@@ -569,19 +554,12 @@ export function DeviceGuide({
               <span>{i + 1}</span>
               <div>
                 <strong>{s}</strong>
-                <small>
-                  {i === 0
-                    ? c.client
-                    : i === 1
-                      ? '使用你的专属链接'
-                      : '检查网页能否打开'}
-                </small>
+                {i === 0 && <small>{c.client}</small>}
               </div>
             </button>
           ))}
         </nav>
         <section className="guide-stage">
-          <p className="context-label">第 {step + 1} 步 / 共 3 步</p>
           <h2>{steps[step]}</h2>
           {message && (
             <p role="status" className="message">
@@ -599,13 +577,9 @@ export function DeviceGuide({
               >
                 下载 {c.client} ↗
               </a>
-              <p className="small muted">
-                仅从官方来源下载。已安装？直接继续下一步。
-              </p>
             </>
           ) : step === 1 ? (
             <>
-              <p>打开 {c.client}，然后导入你的 Jamie-Node 订阅。</p>
               {importUrl ? (
                 <div className="actions">
                   <Button
@@ -626,11 +600,9 @@ export function DeviceGuide({
                     onClick={async () => {
                       try {
                         await navigator.clipboard.writeText(importUrl);
-                        setMessage('已复制，请在客户端的订阅 / URL 配置中粘贴');
+                        setMessage('已复制');
                       } catch {
-                        setMessage(
-                          '复制失败，请在订阅管理中显示并手动复制链接',
-                        );
+                        setMessage('复制失败，请到「连接与订阅」手动复制');
                       }
                     }}
                   >
@@ -641,8 +613,8 @@ export function DeviceGuide({
               ) : (
                 <Button disabled={pending} onClick={() => navigate('home')}>
                   {pending
-                    ? '正在准备订阅，就绪后即可导入'
-                    : '登录或开通后获取订阅'}
+                    ? '订阅准备中…'
+                    : '开通后获取订阅'}
                 </Button>
               )}
               <details>
@@ -650,24 +622,15 @@ export function DeviceGuide({
                 <p>
                   {selected === 'ios'
                     ? '点击右上角「+」，选择 Subscribe，粘贴链接并保存。'
-                    : '在客户端「订阅」或「配置」页面新建 URL 配置，粘贴链接，下载后启用。'}
+                    : '在客户端「订阅」或「配置」页新建 URL 配置，粘贴链接。'}
                 </p>
               </details>
             </>
           ) : (
             <>
               <p>{c.connect}</p>
-              <div className="verification-note">
-                <strong>怎样确认成功？</strong>
-                <p>
-                  打开你需要访问的网页。如果无法加载，先更新订阅、换一个地区，并确认没有同时开启其他
-                  VPN。
-                </p>
-              </div>
               <p className="small muted">
-                {selected === 'ios'
-                  ? '小火箭使用自身分流配置，不会导入 Clash 的规则。'
-                  : '本站 Clash 配置包含国内直连、国外代理规则。'}
+                能打开网页即成功；打不开先更新订阅或换个地区，并关闭其他 VPN。
               </p>
             </>
           )}

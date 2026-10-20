@@ -61,7 +61,7 @@ export function InstallGuide({ visible, promote }: { visible: boolean; promote: 
     } catch { setOpen(true); }
     finally { setPrompt(null); setBusy(false); }
   }
-  if (!visible || installed) return null;
+  if (!visible || installed || (!mobile && !prompt)) return null;
   const banner = mobile && promote && !snoozed;
   return <>
     {banner ? <aside className="install-banner" aria-label="添加到主屏幕">
@@ -74,8 +74,8 @@ export function InstallGuide({ visible, promote }: { visible: boolean; promote: 
       <DialogContent className="install-dialog">
         <img className="install-app-icon" src="/apple-touch-icon-v3.png" alt="" width="56" height="56" />
         <DialogTitle>把 Jamie-Node 放到桌面</DialogTitle>
-        <DialogDescription>下次从桌面直接查看订阅、续费。</DialogDescription>
-        {platform === 'ios' ? <ol className="install-steps"><li>用 Safari 打开本站</li><li>点击「分享」<Share size={15} />，选择「添加到主屏幕」</li><li>如有「作为网页 App 打开」，保持开启，点击「添加」</li></ol> : <ol className="install-steps"><li>用 {platform === 'android' ? 'Chrome' : 'Chrome 或 Edge'} 打开本站</li><li>打开浏览器菜单，选择「安装应用」或「添加到主屏幕」</li><li>确认添加，即可从桌面打开</li></ol>}
+        <DialogDescription className="sr-only">安装步骤</DialogDescription>
+        {platform === 'ios' ? <ol className="install-steps"><li>用 Safari 打开本站</li><li>点击「分享」<Share size={15} />，选择「添加到主屏幕」</li><li>点击「添加」</li></ol> : <ol className="install-steps"><li>用 {platform === 'android' ? 'Chrome' : 'Chrome 或 Edge'} 打开本站</li><li>在浏览器菜单中选择「安装应用」或「添加到主屏幕」</li></ol>}
         {prompt && <Button disabled={busy} onClick={() => void install()}><Download size={16} />{busy ? '等待确认…' : '安装应用'}</Button>}
         <p className="install-hint">{platform === 'desktop' ? 'Safari 可在「文件」菜单中选择「添加到程序坞」。' : '微信、QQ 内请先选择「在浏览器打开」。'}</p>
       </DialogContent>
