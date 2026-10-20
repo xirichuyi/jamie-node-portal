@@ -6,7 +6,24 @@ export class ApiError extends Error {
     super(message);
   }
 }
-export async function api<T>(path: string, data?: unknown): Promise<T> {
+// Share only simultaneous reads, never cached account data or mutations.
+// Any mutation establishes a new read generation, including login/logout.
+const pendingReads = new Map<string, Promise<unknown>>();
+export function api<T>(path: string, data?: unknown): Promise<T> {
+  if (data !== undefined) {
+    pendingReads.clear();
+    return request<T>(path, data).finally(() => pendingReads.clear());
+  }
+  const existing = pendingReads.get(path);
+  if (existing) return existing as Promise<T>;
+  const pending = request<T>(path).finally(() => {
+    if (pendingReads.get(path) === pending) pendingReads.delete(path);
+  });
+  pendingReads.set(path, pending);
+  return pending;
+}
+
+async function request<T>(path: string, data?: unknown): Promise<T> {
   const options: RequestInit = {
     method: data === undefined ? 'GET' : 'POST',
     credentials: 'same-origin',

@@ -8,20 +8,25 @@ from pathlib import Path
 import secrets
 import shutil
 import sqlite3
+import subprocess
 import sys
 import tempfile
 import time
 import urllib.parse
+import uuid
 
 sys.path.insert(0, '/opt/jamie-portal/current/backend')
 from node_catalog import CATALOG_PATH, load_catalog, validate_catalog
 from panel import Panel
 from probe import outbound, test_outbound
 
+BACKUP_ROOT = '/root/codex-backups'
+MONITOR_PATH = '/var/lib/jamie-portal/probe-identity.json'
+CONFIG_PATH = '/etc/jamie-portal.json'
 
 def run(params):
     catalog = load_catalog()
-    panel = Panel(json.loads(Path('/etc/jamie-portal.json').read_text()))
+    panel = Panel(json.loads(Path(CONFIG_PATH).read_text()))
     existing = next(
         (
             n
@@ -35,6 +40,8 @@ def run(params):
         key: params[key]
         for key in ('server', 'port', 'name', 'region', 'quota_group', 'quota_bytes')
     }
+    protocol = params.get('protocol', 'hysteria')
+    row['protocol'] = protocol
     row.update(
         inbound_id=existing['inbound_id']
         if existing
@@ -51,7 +58,7 @@ def run(params):
             raise ValueError('Existing group limit cannot be changed during node registration')
         candidate['quota_groups'][row['quota_group']] = params['group_limit']
     validate_catalog(candidate)  # Quota/name checks happen before any panel mutation.
-    backup = Path('/root/codex-backups') / ('node-register-' + str(time.time_ns()))
+    backup = Path(BACKUP_ROOT) / ('node-register-' + str(time.time_ns()))
     backup.mkdir(mode=0o700)
     shutil.copy2(CATALOG_PATH, backup / 'catalog.json')
     with sqlite3.connect('/etc/x-ui/x-ui.db') as src, sqlite3.connect(backup / 'panel.db') as dst:
@@ -88,7 +95,8 @@ def run(params):
             for n in panel.request('nodes/list')
             if n['address'] == params['server'] and n['port'] == params['management_port']
         )
-    tag = 'managed-hy2-' + params['server'].replace('.', '-') + '-' + str(params['port'])
+    # Keep legacy tag stable for HY2 retries.
+    tag = ('managed-vless-' if protocol == 'vless' else 'managed-hy2-') + params['server'].replace('.', '-') + '-' + str(params['port'])
     inbound = (
         panel.request('inbounds/get/' + str(existing['inbound_id']))
         if existing
@@ -121,6 +129,27 @@ def run(params):
                 'pinnedPeerCertSha256': [params['xray_pin']],
             }
         ]
+        settings = {'version': 2, 'clients': []}
+        if protocol == 'vless':
+            generated = subprocess.run(
+                ['/usr/local/x-ui/bin/xray-linux-amd64', 'x25519'],
+                capture_output=True, text=True, check=True).stdout
+            keys = dict(line.split(': ', 1) for line in generated.splitlines() if ': ' in line)
+            public = keys.get('Password (PublicKey)') or keys.get('Password') or keys.get('PublicKey')
+            if not public:
+                raise RuntimeError('Could not generate REALITY key')
+            stream = {
+                'network': 'tcp', 'security': 'reality',
+                'realitySettings': {
+                    'show': False, 'xver': 0, 'minClientVer': '1.0.0',
+                    'target': 'www.cloudflare.com:443', 'serverNames': ['www.cloudflare.com'],
+                    'privateKey': keys['PrivateKey'], 'shortIds': [secrets.token_hex(8)],
+                    'settings': {'publicKey': public, 'fingerprint': 'chrome',
+                                 'serverName': 'www.cloudflare.com', 'spiderX': '/'}},
+                'tcpSettings': {'acceptProxyProtocol': False, 'header': {'type': 'none'}},
+                'externalProxy': [{'forceTls': 'same', 'dest': params['server'],
+                                   'port': params['port'], 'remark': params['name']}]}
+            settings = {'clients': [], 'decryption': 'none', 'fallbacks': []}
         panel.request(
             'inbounds/add',
             {
@@ -135,9 +164,9 @@ def run(params):
                 'trafficResetDay': 1,
                 'listen': '',
                 'port': params['port'],
-                'protocol': 'hysteria',
+                'protocol': protocol,
                 'tag': tag,
-                'settings': json.dumps({'version': 2, 'clients': []}),
+                'settings': json.dumps(settings),
                 'streamSettings': json.dumps(stream),
                 'sniffing': template['sniffing'],
             },
@@ -145,6 +174,8 @@ def run(params):
         inbound = next(n for n in panel.request('inbounds/list') if n['tag'] == tag)
     if inbound['nodeId'] != node['id'] or inbound['port'] != params['port']:
         raise RuntimeError('Existing inbound does not belong to the requested node')
+    if inbound['protocol'] != protocol:
+        raise RuntimeError('Existing inbound transport differs; explicit migration required')
     row.update(inbound_id=inbound['id'], node_id=node['id'])
     validate_catalog(candidate)
     if inbound['total'] != params['quota_bytes']:
@@ -168,6 +199,7 @@ def run(params):
     # Ephemeral probe: failed connectivity blocks publication unless explicitly overridden.
     email = 'onboard_' + secrets.token_hex(8)
     auth = secrets.token_hex(24)
+    client_uuid = str(uuid.uuid4())
     try:
         panel.request(
             'clients/add',
@@ -175,6 +207,7 @@ def run(params):
                 'client': {
                     'email': email,
                     'auth': auth,
+                    'id': client_uuid,
                     'subId': secrets.token_hex(24),
                     'enable': True,
                     'totalGB': 10 * 1024**2,
@@ -186,6 +219,14 @@ def run(params):
             },
         )
         uri = f'hysteria2://{auth}@{params["server"]}:{params["port"]}?sni={params["server"]}&pinSHA256={params["pin"]}'
+        if protocol == 'vless':
+            stream = inbound['streamSettings']
+            stream = json.loads(stream) if isinstance(stream, str) else stream
+            reality = stream['realitySettings']
+            uri = f'vless://{client_uuid}@{params["server"]}:{params["port"]}?' + urllib.parse.urlencode({
+                'security': 'reality', 'type': 'tcp', 'encryption': 'none',
+                'sni': reality['serverNames'][0], 'fp': 'chrome',
+                'pbk': reality['settings']['publicKey'], 'sid': reality['shortIds'][0]})
         config = outbound(uri, {(params['server'], params['port']): params['name']})
         for attempt in range(3):
             with tempfile.TemporaryDirectory(prefix='node-onboard-') as directory:
@@ -202,7 +243,7 @@ def run(params):
     # Only the dedicated monitor is bound here. Customer bindings go through the
     # portal's existing billing lock + persistent outbox, avoiding concurrent
     # redemption/renewal being overwritten by a second administrative writer.
-    identity = json.loads(Path('/var/lib/jamie-portal/probe-identity.json').read_text())
+    identity = json.loads(Path(MONITOR_PATH).read_text())
     current = panel.get(identity['email'])
     if (
         current['client']['auth'] != identity['auth']

@@ -9,6 +9,7 @@ from pathlib import Path
 import re
 import shlex
 import subprocess
+import sys
 import tempfile
 import time
 
@@ -21,6 +22,11 @@ set -eu
 printf 'os=%s\narch=%s\nuid=%s\n' "$ID" "$(uname -m)" "$(id -u)"
 printf 'memory_kib='; awk '/MemTotal:/ {print $2}' /proc/meminfo
 printf 'memory_max='; cat /sys/fs/cgroup/memory.max 2>/dev/null || echo max
+if command -v curl >/dev/null; then
+ region=$(curl -fsS --max-time 3 -H 'Authorization: Bearer Oracle' \
+  http://169.254.169.254/opc/v2/instance/region 2>/dev/null || true)
+ printf 'cloud_region=%s\n' "$region"
+fi
 if [ -x /usr/local/x-ui/x-ui ] && [ -s /etc/x-ui/install-result.env ] &&
    [ -s /etc/x-ui/tls/node.crt ] && [ -s /etc/x-ui/tls/node.key ]; then
  echo panel=ready
@@ -41,11 +47,12 @@ from pathlib import Path
 # Remote inbounds are dynamically injected and need not appear in config.json.
 # Identify actual UDP socket owners instead of assuming a persisted startup config.
 sockets = {}
-for filename in ('/proc/net/udp', '/proc/net/udp6'):
+for filename in ('/proc/net/udp', '/proc/net/udp6', '/proc/net/tcp', '/proc/net/tcp6'):
  try:
   for line in Path(filename).read_text().splitlines()[1:]:
    fields = line.split()
-   sockets[fields[9]] = int(fields[1].rsplit(':', 1)[1], 16)
+   sockets[fields[9]] = ('tcp' if '/tcp' in filename else 'udp',
+                        int(fields[1].rsplit(':', 1)[1], 16))
  except OSError:
   pass
 for process in Path('/proc').glob('[0-9]*'):
@@ -57,7 +64,8 @@ for process in Path('/proc').glob('[0-9]*'):
    try:
     link = str(fd.readlink())
     if link.startswith('socket:[') and link[8:-1] in sockets:
-     print('managed_udp=' + str(sockets[link[8:-1]]))
+     transport, port = sockets[link[8:-1]]
+     print('managed_' + transport + '=' + str(port))
    except OSError:
     pass
  except OSError:
@@ -65,6 +73,45 @@ for process in Path('/proc').glob('[0-9]*'):
 PY
 fi
 '''
+
+OCI_REGIONS = {
+    'ca-montreal-1': ('🇨🇦', '加拿大', '蒙特利尔'),
+    'ca-toronto-1': ('🇨🇦', '加拿大', '多伦多'),
+    'mx-queretaro-1': ('🇲🇽', '墨西哥', '克雷塔罗'),
+    'ap-tokyo-1': ('🇯🇵', '日本', '东京'),
+    'ap-osaka-1': ('🇯🇵', '日本', '大阪'),
+    'ap-singapore-1': ('🇸🇬', '新加坡', ''),
+    'eu-frankfurt-1': ('🇩🇪', '德国', '法兰克福'),
+    'us-sanjose-1': ('🇺🇸', '美国', '圣何塞'),
+}
+
+
+def location_defaults(cloud_region, catalog):
+    location = OCI_REGIONS.get(cloud_region)
+    if not location:
+        return None, None
+    flag, country, city = location
+    prefix = f'{flag} {country}' + (f' · {city}' if city else '')
+    names = {row['name'] for row in catalog['nodes']}
+    number = 1
+    # Retired names also reserve their sequence numbers.
+    while any(name.startswith(f'{prefix} {number:02d}') for name in names):
+        number += 1
+    return f'{prefix} {number:02d}', country
+
+
+def matching_nodes(catalog, ip, allocation=None, saved_port=None):
+    rows = [row for row in catalog['nodes'] if row['server'] == ip]
+    if allocation:
+        ports = set()
+        for value in allocation:
+            if value:
+                ports.update(port_pool(value))
+        if ports:
+            return [row for row in rows if row['port'] in ports]
+    if saved_port:
+        return [row for row in rows if row['port'] == saved_port]
+    return rows
 
 
 def port_pool(value):
@@ -81,12 +128,12 @@ def port_pool(value):
 
 
 def inspect(text):
-    facts = {'tcp': set(), 'udp': set(), 'managed_udp': set()}
+    facts = {'tcp': set(), 'udp': set(), 'managed_udp': set(), 'managed_tcp': set()}
     for line in text.splitlines():
         key, _, value = line.partition('=')
         if key in ('tcp', 'udp'):
             facts[key].add(int(value.rsplit(':', 1)[1], 16))
-        elif key == 'managed_udp':
+        elif key in ('managed_udp', 'managed_tcp'):
             facts[key].add(int(value))
         elif key:
             facts[key] = value
@@ -116,6 +163,15 @@ def choose_port(pool, occupied, existing=None):
         if port not in occupied:
             return port
     raise ValueError('提供的端口都被占用；请提供另一个已分配端口')
+
+
+def transport_for(requested, existing, saved, ssh_port):
+    previous = (existing or {}).get('protocol', 'hysteria') if existing else saved.get('protocol')
+    if previous:
+        if requested != 'auto' and requested != previous:
+            raise ValueError('已有节点/重试参数的协议不同；协议迁移需单独操作')
+        return previous
+    return requested if requested != 'auto' else ('vless' if ssh_port != 22 else 'hysteria')
 
 
 def prompt(label, default, automatic):
@@ -153,6 +209,10 @@ def report(status):
     print('订阅发布：' + ('已发布' if status.get('published') else '未发布'))
     print('订阅内容：' + ('已包含节点' if status.get('subscription_present') else '尚未确认'))
     print(f'用户同步：待处理 {status.get("sync_pending", "未知")}，错误 {status.get("sync_errors", "未知")}')
+    if 'node_members_expected' in status:
+        print(f'本节点用户绑定：{status["node_members_bound"]}/{status["node_members_expected"]}')
+    if status.get('other_offline_nodes'):
+        print('其他在役节点离线：' + '、'.join(status['other_offline_nodes']))
     online = status.get('connectivity_ok')
     print('最近代理探测：' + ('通过' if online is True else '未通过' if online is False else '暂无结果'))
     if status.get('connectivity_checked_at'):
@@ -169,9 +229,12 @@ def main(argv=None):
     parser.add_argument('--master', default='Noether')
     parser.add_argument('--tcp-ports', help='服务商分配的 TCP 端口，如 21226-21227')
     parser.add_argument('--udp-ports', help='服务商分配的 UDP 端口，如 21228-21229')
+    parser.add_argument('--ports', help='NAT 分配端口范围；TCP/UDP 共用时只需填一次，自动排除 SSH 端口')
+    parser.add_argument('--protocol', choices=['auto', 'vless', 'hysteria'], default='auto',
+                        help='新 NAT 节点默认 VLESS TCP；已有节点保留原协议')
     parser.add_argument('--name')
     parser.add_argument('--region')
-    parser.add_argument('--publish-unverified', action='store_true', help='UDP 测试失败时仍明确要求发布')
+    parser.add_argument('--publish-unverified', action='store_true', help='代理测试失败时仍明确要求发布')
     parser.add_argument('--yes', action='store_true', help='使用参数/已保存配置，无交互运行')
     parser.add_argument('--check', action='store_true', help='只读检查，不安装、不注册、不发布')
     args = parser.parse_args(argv)
@@ -191,6 +254,8 @@ def main(argv=None):
         resolved = subprocess.run(['ssh', '-G', args.ssh], capture_output=True, text=True, check=True)
         ip = next(line.split(maxsplit=1)[1] for line in resolved.stdout.splitlines() if line.startswith('hostname '))
         ip = str(ipaddress.IPv4Address(ip))
+        args.ssh_port = int(next(line.split()[1] for line in resolved.stdout.splitlines()
+                                 if line.startswith('port ')))
     if not ipaddress.ip_address(ip).is_global:
         raise ValueError('节点必须使用公网 IPv4')
     key = hashlib.sha256(f'{args.master}:{args.ssh or ip}:{args.ssh_port}'.encode()).hexdigest()[:16]
@@ -216,12 +281,14 @@ def main(argv=None):
                                         '-o', 'StrictHostKeyChecking=' + ('yes' if args.yes else 'ask'),
                                         endpoint, 'true'])
                 if login.returncode:
-                    raise RuntimeError('SSH 登录失败：' + endpoint)
+                    raise RuntimeError('SSH 登录失败：' + endpoint +
+                                       '；请核对用户名/密码、密钥和主机指纹；--yes 仅支持已有密钥/连接')
             login_to(args.master)
             catalog = json.loads(call(config, args.master, 'cat /etc/jamie-node-catalog.json'))
             if ip == catalog['service']['master_ip']:
                 raise ValueError('目标是主控机器，不能用新节点向导安装')
-            existing_rows = [n for n in catalog['nodes'] if n['server'] == ip]
+            existing_rows = matching_nodes(
+                catalog, ip, [args.ports, args.tcp_ports, args.udp_ports], saved.get('port'))
             if any(not n['enabled'] for n in existing_rows):
                 raise ValueError('该节点已停用；请先确认机器归属，不能自动连接已退役节点')
             if len(existing_rows) > 1:
@@ -239,22 +306,51 @@ def main(argv=None):
                 value = call(config, host, "sed -n 's/^XUI_PANEL_PORT=//p' /etc/x-ui/install-result.env").decode().strip()
                 installed_port = int(shlex.split(value)[0])
             automatic = args.yes or args.check
-            tcp = port_pool(prompt('可用 TCP 端口', args.tcp_ports or saved.get('tcp_ports') or str(installed_port or 48180), automatic))
-            udp = port_pool(prompt('可用 UDP 端口', args.udp_ports or saved.get('udp_ports') or str(existing['port'] if existing else 8443), automatic))
+            protocol = transport_for(args.protocol, existing, saved, args.ssh_port)
+            tcp_default = args.tcp_ports or args.ports or saved.get('tcp_ports')
+            if not tcp_default and args.ssh_port == 22:
+                tcp_default = str(installed_port or 48180) + (',8443' if protocol == 'vless' else '')
+            if not tcp_default and installed_port and existing and protocol == 'vless':
+                tcp_default = f'{installed_port},{existing["port"]}'
+            if not tcp_default and installed_port and existing:
+                tcp_default = str(installed_port)
+            tcp = port_pool(prompt('可用 TCP 端口', tcp_default, automatic or bool(tcp_default)))
+            tcp = [port for port in tcp if port != args.ssh_port]
             management_port = choose_port(tcp, facts['tcp'], installed_port)
-            is_tcp = existing and existing.get('protocol') == 'vless'
-            port = existing['port'] if is_tcp else choose_port(udp, facts['udp'], existing['port'] if existing else saved.get('port') if facts['panel'] == 'ready' else None)
+            is_tcp = protocol == 'vless'
+            previous_port = existing['port'] if existing else saved.get('port') if facts['panel'] == 'ready' else None
+            udp = []
+            if is_tcp:
+                pool = [port for port in tcp if port != management_port]
+                port = choose_port(pool, facts['tcp'], previous_port)
+                if port in facts['tcp'] and port not in facts['managed_tcp']:
+                    raise ValueError('TCP 端口被其他服务占用，不能覆盖')
+            else:
+                udp_default = args.udp_ports or args.ports or saved.get('udp_ports')
+                if not udp_default and existing:
+                    udp_default = str(existing['port'])
+                if not udp_default and args.ssh_port == 22:
+                    udp_default = str(existing['port'] if existing else 8443)
+                udp = port_pool(prompt('可用 UDP 端口', udp_default, automatic or bool(udp_default)))
+                port = choose_port(udp, facts['udp'], previous_port)
             if not is_tcp and port in facts['udp'] and port not in facts['managed_udp']:
                 raise ValueError('选定 UDP 端口被其他服务占用，不能覆盖；请换一个已分配端口')
-            name = prompt('节点显示名称', args.name or (existing or {}).get('name') or saved.get('name') or ('待命名' if args.check else None), automatic)
-            region = prompt('地区', args.region or (existing or {}).get('region') or saved.get('region') or ('待填写' if args.check else None), automatic)
+            detected_name, detected_region = location_defaults(facts.get('cloud_region'), catalog)
+            name_default = args.name or (existing or {}).get('name') or saved.get('name') or detected_name
+            region_default = args.region or (existing or {}).get('region') or saved.get('region') or detected_region
+            name = prompt('节点显示名称', name_default or ('待命名' if args.check else None),
+                          automatic or bool(name_default))
+            region = prompt('地区', region_default or ('待填写' if args.check else None),
+                            automatic or bool(region_default))
             profile = dict(ip=ip, port=port, management_port=management_port, name=name, region=region,
+                           protocol=protocol,
                            tcp_ports=','.join(map(str, tcp)), udp_ports=','.join(map(str, udp)))
             transport = 'VLESS TCP' if is_tcp else 'HY2 UDP'
             print(f'{facts["os"]} / {facts["arch"]} / {facts["memory_mib"]} MiB；管理 TCP {management_port}，{transport} {port}')
             options = ['add', '--ssh', host, '--ssh-config', str(config), '--master', args.master,
                        '--ip', ip, '--management-port', str(management_port), '--port', str(port),
                        '--name', name, '--region', region]
+            options += ['--protocol', protocol]
             if existing and existing['quota_bytes']:
                 from decimal import Decimal
                 options += ['--quota-group', existing['quota_group'], '--quota-tb', str(Decimal(existing['quota_bytes']) / 10**12)]
@@ -288,12 +384,25 @@ def main(argv=None):
             deadline = time.monotonic() + 60
             while True:
                 result = status()
-                if result.get('catalog_observed') and result.get('subscription_present') and result.get('sync_pending') == 0:
+                node_bound = (result.get('node_members_expected') is not None and
+                              result.get('node_members_bound') == result['node_members_expected'] and
+                              result.get('configuration_clean') and result.get('management_online'))
+                if result.get('catalog_observed') and result.get('subscription_present') and (
+                        result.get('sync_pending') == 0 or node_bound):
                     break
                 if time.monotonic() >= deadline:
                     break
                 time.sleep(5)
             report(result)
+            core = Path('/Applications/Clash Verge.app/Contents/MacOS/verge-mihomo')
+            if core.exists():
+                checked = subprocess.run(
+                    [sys.executable, str(ROOT / 'verify_clients.py'), '--master', args.master,
+                     '--node', ip], capture_output=True, timeout=120)
+                print('本机独立 Mihomo 验证：' + ('通过' if checked.returncode == 0 else
+                      '未通过；主控探测与发布状态如上，可单独运行 verify_clients.py --node 重查'))
+            else:
+                print('本机独立 Mihomo 验证：跳过（未安装 Clash Verge）；不能据此断言本机链路可用')
             print('参数已保存；以后用相同 --ssh 或 --host/--ssh-port 重试，加 --check 可只读检查。')
         except (RuntimeError, ValueError, subprocess.SubprocessError) as exc:
             # Error messages here are explicitly sanitized; subprocess output remains private.

@@ -18,6 +18,16 @@ import routes_admin
 
 
 class RoutingTests(unittest.TestCase):
+    def test_disconnected_clients_during_error_responses(self):
+        handler = Handler.__new__(Handler)
+        for failure in (HttpError(401, 'login'), DomainError('invalid'), RuntimeError()):
+            for disconnect in (BrokenPipeError, ConnectionResetError):
+                handler.route = Mock(side_effect=failure)
+                handler.reply = Mock(side_effect=disconnect)
+                with patch('builtins.print'):
+                    handler.handle_api(False)
+                handler.reply.assert_called_once()
+
     def test_all_endpoint_branches_keep_access_guards(self):
         user = {'admin': False, 'must_change': False}
         forced = {'admin': True, 'must_change': True}

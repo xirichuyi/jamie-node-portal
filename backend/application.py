@@ -34,6 +34,9 @@ class App:
             config.get('package_billing', False)
         )
         self.panel = panel or Panel(config)
+        # Replaced atomically by the billing sampler; HTTP requests never wait
+        # for the panel when the local package ledger is authoritative.
+        self.panel_status = (0.0, {})
         self.content = Content(self.ledger)
         self.monitor = NodeMonitor(self.panel, config.get('node_catalog'))
         self.wake = threading.Event()
@@ -273,14 +276,18 @@ class App:
         used = None
         panel_enabled = None
         error = None
-        if member['revision']:
+        billing = self.ledger.billing_snapshot(account['id'])
+        if self.ledger.package_billing:
+            sampled, statuses = self.panel_status
+            if time.monotonic() - sampled <= 60:
+                panel_enabled = statuses.get(member['panel_email'])
+        elif member['revision']:
             try:
                 current = self.panel.get(member['panel_email'])
                 used = current['usedTraffic']
                 panel_enabled = current['client']['enable']
             except Exception:
                 error = '暂时无法读取节点用量，请稍后刷新'
-        billing = self.ledger.billing_snapshot(account['id'])
         display_quota = member['quota']
         if billing:
             active = [
@@ -376,7 +383,14 @@ class App:
         values = {}
         with self.ledger.billing_lock:
             try:
-                for row in self.panel.request('clients/list'):
+                rows = self.panel.request('clients/list')
+                statuses = {
+                    row['email']: row['enable']
+                    for row in rows
+                    if isinstance(row.get('email'), str) and type(row.get('enable')) is bool
+                }
+                self.panel_status = (time.monotonic(), statuses)
+                for row in rows:
                     stat = row.get('traffic')
                     if stat and type(stat.get('up')) is int and type(stat.get('down')) is int:
                         values[row['email']] = stat['up'] + stat['down']

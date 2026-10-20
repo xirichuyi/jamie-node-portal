@@ -2,6 +2,7 @@
 No system proxy changes; no customer secrets or URLs are printed.
 """
 import base64
+import argparse
 import json
 import os
 from pathlib import Path
@@ -15,13 +16,21 @@ import urllib.parse
 import urllib.request
 
 os.umask(0o077)
-catalog=json.loads(subprocess.run(['ssh','-o','BatchMode=yes','-o','StrictHostKeyChecking=yes','Noether',
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument('--master', default='Noether')
+parser.add_argument('--node', help='Only test the selected public IPv4 data plane')
+parser.add_argument('--metadata-only', action='store_true')
+args = parser.parse_args()
+catalog=json.loads(subprocess.run(['ssh','-o','BatchMode=yes','-o','StrictHostKeyChecking=yes',args.master,
     'cat /etc/jamie-node-catalog.json'],capture_output=True,text=True,check=True).stdout)
 expected={(n['server'],n['port']) for n in catalog['nodes'] if n['enabled']}
 service=catalog['service']
 assert expected
-identity=json.loads(subprocess.run(['ssh','-o','BatchMode=yes','-o','StrictHostKeyChecking=yes','Noether',
+identity=json.loads(subprocess.run(['ssh','-o','BatchMode=yes','-o','StrictHostKeyChecking=yes',args.master,
     'cat /var/lib/jamie-portal/probe-identity.json'],capture_output=True,text=True,check=True).stdout)
+selected = {n['name'] for n in catalog['nodes'] if n['enabled'] and (not args.node or n['server'] == args.node)}
+if not selected:
+    raise RuntimeError('Requested node is not published')
 url=service['origin'].rstrip('/')+'/sub/'+identity['sub_id']
 def fetch(agent, suffix=''):
     req=urllib.request.Request(url+suffix,headers={'User-Agent':agent})
@@ -58,7 +67,7 @@ for agent in ('ClashVergeRev/2.4', 'Shadowrocket/2'):
         assert response.headers.get('profile-web-page-url') == service['origin'].rstrip('/')+'/'
         assert response.read() == b''
 print('HEAD usage metadata and portal links: PASS')
-if '--metadata-only' in sys.argv:
+if args.metadata_only:
     sys.exit(0)
 
 core='/Applications/Clash Verge.app/Contents/MacOS/verge-mihomo'
@@ -88,6 +97,7 @@ with tempfile.TemporaryDirectory(prefix='jamie-client-qa-') as work:
         failures=[]
         for name,p in proxies.items():
             if p['type'].lower() not in ('hysteria2','vless'):continue
+            if name not in selected:continue
             req=urllib.request.Request(f'http://127.0.0.1:{controller}/proxies/'+urllib.parse.quote('Jamie-Node'),
                 data=json.dumps({'name':name}).encode(),method='PUT',headers={'Content-Type':'application/json'})
             local.open(req,timeout=3).close()

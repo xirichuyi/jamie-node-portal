@@ -64,6 +64,24 @@ class BillingIntegrationTests(unittest.TestCase):
         self.sample(user, GIB // 2)
         self.assertEqual(self.app.overview(user)['subscription']['used'], GIB // 2)
 
+    def test_overview_does_not_wait_for_panel_and_expires_sampled_status(self):
+        user = self.user()
+        self.panel.get = Mock(side_effect=TimeoutError('panel unavailable'))
+        self.assertIsNone(self.app.overview(user)['subscription']['enabled'])
+        with self.app.ledger.connect() as db:
+            email = db.execute(
+                'SELECT panel_email FROM members WHERE id=?', (user['id'],)
+            ).fetchone()[0]
+        self.panel.request.return_value = [
+            {'email': email, 'enable': True, 'traffic': {'up': 100, 'down': 0}}
+        ]
+        self.app.refresh_billing()
+        self.assertTrue(self.app.overview(user)['subscription']['enabled'])
+        _, statuses = self.app.panel_status
+        self.app.panel_status = (time.monotonic() - 61, statuses)
+        self.assertIsNone(self.app.overview(user)['subscription']['enabled'])
+        self.panel.get.assert_not_called()
+
     def test_new_package_does_not_extend_old_and_expiry_reduces_panel_target(self):
         user = self.user()
         self.sample(user, 100)

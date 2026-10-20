@@ -1,3 +1,4 @@
+import { DeleteAccount } from './account-features';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -11,7 +12,6 @@ import {
 import { LoginDiagnosis } from './admin-support';
 import { expiryLabel, ruleLabel } from './cycles';
 import {
-  DeleteAccount,
   PackageBalances,
   type PackageBalance,
 } from './features';

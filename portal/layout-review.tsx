@@ -9,7 +9,9 @@ import {
 } from './journeys';
 import { PlansPage, Announcements, PageTitle, type Catalog } from './content';
 import { NoticeEntry } from './notice-entry';
-import { Connection, Operations, Tickets, Sessions, UsagePanel, DeleteAccount } from './features';
+import { Connection, UsagePanel } from './features';
+import { Tickets, Sessions, DeleteAccount } from './account-features';
+import { Operations } from './admin-operations';
 import { Button } from '@/components/ui/button';
 import { CycleFields } from './cycles';
 import '@/app/globals.css';

@@ -10,7 +10,11 @@ const vite = await createServer({
   appType: 'custom',
 });
 after(() => vite.close());
-const features = await vite.ssrLoadModule('/portal/features.tsx');
+const features = {
+  ...await vite.ssrLoadModule('/portal/features.tsx'),
+  ...await vite.ssrLoadModule('/portal/account-features.tsx'),
+  ...await vite.ssrLoadModule('/portal/admin-operations.tsx'),
+};
 const journeys = await vite.ssrLoadModule('/portal/journeys.tsx');
 const content = await vite.ssrLoadModule('/portal/content.tsx');
 const apiModule = await vite.ssrLoadModule('/portal/api.ts');
@@ -307,6 +311,56 @@ test('tutorial preferences accept only known devices and valid steps, including 
   } finally {
     globalThis.sessionStorage = original;
   }
+});
+test('simultaneous reads share a request but completed responses are not cached', async () => {
+  const original = globalThis.fetch;
+  let finish, calls = 0;
+  try {
+    globalThis.fetch = () => {
+      calls++;
+      return new Promise(resolve => { finish = resolve; });
+    };
+    const first = apiModule.api('test/shared');
+    const second = apiModule.api('test/shared');
+    assert.equal(calls, 1);
+    finish(Response.json({ value: 1 }));
+    assert.deepEqual(await Promise.all([first, second]), [{ value: 1 }, { value: 1 }]);
+    const fresh = apiModule.api('test/shared');
+    assert.equal(calls, 2);
+    finish(Response.json({ value: 2 }));
+    assert.deepEqual(await fresh, { value: 2 });
+  } finally { globalThis.fetch = original; }
+});
+test('mutation boundaries prevent sharing old account reads', async () => {
+  const original = globalThis.fetch;
+  const reads = [];
+  try {
+    globalThis.fetch = (_url, options) => options.method === 'POST'
+      ? Promise.resolve(Response.json({ ok: true }))
+      : new Promise(resolve => reads.push(resolve));
+    const previous = apiModule.api('test/account');
+    await apiModule.api('test/logout', {});
+    const current = apiModule.api('test/account');
+    assert.equal(reads.length, 2);
+    reads[0](Response.json({ user: 'old' }));
+    await previous;
+    const sameGeneration = apiModule.api('test/account');
+    assert.equal(reads.length, 2, 'an old response must not evict the new request');
+    reads[1](Response.json({ user: null }));
+    assert.deepEqual(await Promise.all([current, sameGeneration]), [{ user: null }, { user: null }]);
+  } finally { globalThis.fetch = original; }
+});
+test('failed reads leave no rejected response cache', async () => {
+  const original = globalThis.fetch;
+  let calls = 0;
+  try {
+    globalThis.fetch = async () => ++calls === 1
+      ? Response.json({ error: 'login required' }, { status: 401 })
+      : Response.json({ ok: true });
+    await assert.rejects(apiModule.api('test/recover'), { status: 401 });
+    assert.deepEqual(await apiModule.api('test/recover'), { ok: true });
+    assert.equal(calls, 2);
+  } finally { globalThis.fetch = original; }
 });
 test('read-only loads retry a transient gateway failure', async () => {
   const original = globalThis.fetch;

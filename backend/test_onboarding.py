@@ -53,12 +53,15 @@ class OnboardingTests(unittest.TestCase):
             with self.subTest(value=value), self.assertRaises(ValueError):
                 onboard.port_pool(value)
 
-    def exercise(self, *, check=False, existing=True, retired=False, fail=False, facts=FACTS):
+    def exercise(self, *, check=False, existing=True, retired=False, fail=False,
+                 facts=FACTS, extra=(), existing_protocol=None, automatic=True):
         catalog = {'service': {'master_ip': '8.8.8.8'}, 'nodes': []}
         if existing:
             catalog['nodes'].append(dict(server='158.101.142.111', port=21229,
                                          name='日本 03', region='日本', enabled=not retired,
                                          quota_group='limited', quota_bytes=1000))
+            if existing_protocol:
+                catalog['nodes'][0]['protocol'] = existing_protocol
         status = dict(published=True, subscription_present=True, catalog_observed=True,
                       sync_pending=0, sync_errors=0, connectivity_ok=False)
         commands, logins, registrations = [], [], []
@@ -86,12 +89,16 @@ class OnboardingTests(unittest.TestCase):
                 raise RuntimeError('Node connectivity failed; not published')
             return {'ok': True}
 
-        options = ['--host', '158.101.142.111', '--ssh-port', '21225', '--yes']
+        options = ['--host', '158.101.142.111', '--ssh-port', '21225']
+        if automatic:
+            options.append('--yes')
         if check:
             options.append('--check')
         if not existing:
-            options += ['--name', '日本 03', '--region', '日本', '--tcp-ports', '21226-21227',
-                        '--udp-ports', '21228-21229']
+            options += ['--name', '日本 03', '--region', '日本']
+            if '--ports' not in extra:
+                options += ['--tcp-ports', '21226-21227', '--udp-ports', '21228-21229']
+        options += list(extra)
         with tempfile.TemporaryDirectory() as directory:
             with patch.object(onboard.Path, 'home', return_value=Path(directory)), \
                  patch.object(onboard, 'call', side_effect=call), \
@@ -142,7 +149,8 @@ class OnboardingTests(unittest.TestCase):
         self.assertIn('--prepare', registrations[0])
         self.assertIn('--unlimited', registrations[0])
         self.assertNotIn('--publish-unverified', registrations[0])
-        self.assertEqual(registrations[0][registrations[0].index('--port') + 1], '21229')
+        self.assertEqual(registrations[0][registrations[0].index('--port') + 1], '21227')
+        self.assertEqual(registrations[0][registrations[0].index('--protocol') + 1], 'vless')
         self.assertTrue(any('apk add' in c for _, c in commands))
 
     def test_failed_registration_preserves_parameters_and_does_not_claim_success(self):
@@ -150,8 +158,67 @@ class OnboardingTests(unittest.TestCase):
         commands, _, registrations, profiles, error = self.exercise(existing=False, facts=facts, fail=True)
         self.assertIn('connectivity failed', error)
         self.assertNotIn('--prepare', registrations[0])
-        self.assertEqual(profiles[0]['port'], 21229)
+        self.assertEqual(profiles[0]['port'], 21227)
         self.assertFalse(any('systemctl' in c for _, c in commands))
+
+    def test_transport_defaults_and_retry_preservation(self):
+        self.assertEqual(onboard.transport_for('auto', None, {}, 21220), 'vless')
+        self.assertEqual(onboard.transport_for('auto', None, {}, 22), 'hysteria')
+        self.assertEqual(onboard.transport_for('auto', {'port': 8443}, {}, 21220), 'hysteria')
+        self.assertEqual(onboard.transport_for('auto', None, {'protocol': 'vless'}, 22), 'vless')
+        with self.assertRaises(ValueError):
+            onboard.transport_for('hysteria', {'protocol': 'vless'}, {}, 22)
+
+    def test_metadata_names_do_not_reuse_retired_numbers(self):
+        catalog = {'nodes': [
+            {'name': '🇨🇦 加拿大 · 蒙特利尔 01（已退役）'},
+            {'name': '🇨🇦 加拿大 · 蒙特利尔 02'}]}
+        self.assertEqual(onboard.location_defaults('ca-montreal-1', catalog),
+                         ('🇨🇦 加拿大 · 蒙特利尔 03', '加拿大'))
+        self.assertEqual(onboard.location_defaults('unknown', catalog), (None, None))
+
+    def test_same_public_ip_does_not_merge_separate_nat_allocations(self):
+        first = dict(server='8.8.4.4', port=21207, enabled=True)
+        retired = dict(server='8.8.4.4', port=21222, enabled=False)
+        catalog = {'nodes': [first, retired]}
+        self.assertEqual(onboard.matching_nodes(catalog, '8.8.4.4', ['21205-21209']), [first])
+        self.assertEqual(onboard.matching_nodes(catalog, '8.8.4.4', ['21220-21224']), [retired])
+        self.assertEqual(onboard.matching_nodes(catalog, '8.8.4.4', ['21230-21234']), [])
+        self.assertEqual(onboard.matching_nodes(catalog, '8.8.4.4', saved_port=21207), [first])
+
+    def test_explicit_options_do_not_prompt_again_in_password_login_mode(self):
+        facts = FACTS.replace('panel=ready', 'panel=absent').replace('tcp=00000000:52EA\n', '')
+        with patch('builtins.input', side_effect=AssertionError('Unexpected repeated prompt')):
+            _, _, registrations, _, error = self.exercise(
+                existing=False, facts=facts, automatic=False, extra=['--ports', '21225-21229'])
+        self.assertIsNone(error)
+        self.assertEqual(len(registrations), 1)
+
+    def test_shared_nat_range_excludes_ssh_and_management_ports(self):
+        facts = FACTS.replace('panel=ready', 'panel=absent').replace('tcp=00000000:52EA\n', '')
+        _, _, registrations, _, error = self.exercise(
+            existing=False, facts=facts, extra=['--ports', '21225-21229'])
+        self.assertIsNone(error)
+        options = registrations[0]
+        self.assertEqual(options[options.index('--management-port') + 1], '21226')
+        self.assertEqual(options[options.index('--port') + 1], '21227')
+
+    def test_insufficient_tcp_range_fails_before_installation(self):
+        facts = FACTS.replace('panel=ready', 'panel=absent').replace('tcp=00000000:52EA\n', '')
+        commands, _, registrations, profiles, error = self.exercise(
+            existing=False, facts=facts, extra=['--ports', '21225-21226'])
+        self.assertIsNotNone(error)
+        self.assertEqual((registrations, profiles), ([], []))
+        self.assertFalse(any('apk add' in command for _, command in commands))
+
+    def test_existing_tcp_listener_must_be_owned_by_xray(self):
+        facts = FACTS + 'tcp=00000000:52ED\n'
+        _, _, _, _, error = self.exercise(facts=facts, existing_protocol='vless')
+        self.assertIn('被其他服务占用', error)
+        _, _, registrations, _, error = self.exercise(
+            facts=facts + 'managed_tcp=21229\n', existing_protocol='vless')
+        self.assertIsNone(error)
+        self.assertEqual(registrations, [])
 
 
 if __name__ == '__main__':

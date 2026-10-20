@@ -22,7 +22,8 @@ def run(target):
         return result
     result['name'] = row['name']
     panel = Panel(json.loads(Path('/etc/jamie-portal.json').read_text()))
-    node = next((n for n in panel.request('nodes/list') if n['id'] == row['node_id']), {})
+    nodes = panel.request('nodes/list')
+    node = next((n for n in nodes if n['id'] == row['node_id']), {})
     result['management_online'] = node.get('status') == 'online'
     result['configuration_clean'] = not node.get('configDirty', True) and not node.get('lastError')
     with sqlite3.connect('file:/var/lib/jamie-portal/portal.db?mode=ro', uri=True) as db:
@@ -31,6 +32,17 @@ def run(target):
         counts = db.execute('SELECT COUNT(*), COALESCE(SUM(revision>synced_revision),0), '
                             'COALESCE(SUM(sync_error IS NOT NULL),0) FROM members WHERE deleting=0').fetchone()
         result.update(members=counts[0], sync_pending=counts[1], sync_errors=counts[2])
+        expected = {entry[0] for entry in db.execute(
+            'SELECT panel_email FROM members WHERE deleting=0 AND (quota>0 OR synced_revision>0)')}
+    inbound = panel.request('inbounds/get/' + str(row['inbound_id']))
+    settings = inbound['settings']
+    settings = json.loads(settings) if isinstance(settings, str) else settings
+    bound = {client['email'] for client in settings.get('clients', [])}
+    result.update(node_members_expected=len(expected), node_members_bound=len(expected & bound))
+    offline_ids = {entry['id'] for entry in nodes if entry.get('status') != 'online'}
+    result['other_offline_nodes'] = [entry['name'] for entry in catalog['nodes']
+                                    if entry['enabled'] and entry['node_id'] != row['node_id']
+                                    and entry['node_id'] in offline_ids]
     # Dedicated monitor only; never fetch a customer subscription for acceptance.
     try:
         identity = json.loads(Path('/var/lib/jamie-portal/probe-identity.json').read_text())

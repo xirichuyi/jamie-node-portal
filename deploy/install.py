@@ -1,5 +1,6 @@
 """Run on Noether as root. Preserve subscription locations and panel vhost."""
 import datetime
+import fcntl
 import grp
 import json
 import os
@@ -9,6 +10,14 @@ import shutil
 import subprocess
 import sys
 import urllib.request
+from portal_runtime import retain_assets, trusted_proxy_config
+
+# Only one deployment may switch the live release and nginx configuration.
+deployment_lock = open('/run/lock/jamie-portal-deploy.lock', 'a', encoding='utf-8')
+try:
+    fcntl.flock(deployment_lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+except BlockingIOError:
+    raise SystemExit('Another portal deployment is running; retry after it completes.') from None
 
 def run(*args):
     return subprocess.run(args, check=True, capture_output=True, text=True).stdout
@@ -39,6 +48,9 @@ for item in release.rglob('*'):
 current = root / 'current'
 previous = str(current.resolve()) if current.exists() else None
 if previous:
+    for prior_release in (root / 'releases').iterdir():
+        if prior_release != release and prior_release.is_dir():
+            retain_assets(prior_release, release)
     # Backup using the OLD running version before the new additive schema starts.
     run('systemctl','start','jamie-portal-backup.service')
     (backup/'previous-release.txt').write_text(previous)
@@ -126,6 +138,10 @@ new = '''    # Jamie-Node portal: subscriptions above retain their existing adap
     location / {
         try_files $uri /index.html;
     }'''
+new = new.replace(
+    '    root /opt/jamie-portal/current/public;',
+    trusted_proxy_config() + '\n    root /opt/jamie-portal/current/public;',
+)
 if old in original:
     updated = 'limit_req_zone $binary_remote_addr zone=jamie_portal_api:1m rate=5r/s;\n' + original.replace(old,new,1)
 elif '# Jamie-Node portal:' in original:

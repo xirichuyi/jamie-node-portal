@@ -52,9 +52,42 @@ For a new NAT node, parameters can also be supplied directly:
 
 ```sh
 npm run node:add -- --host PUBLIC_IPV4 --ssh-port SSH_PORT \
-  --tcp-ports 21226-21227 --udp-ports 21228-21229 \
+  --ports 21225-21229 \
   --name '🇯🇵 日本 · 东京 04' --region 日本
 ```
+
+Supplied/saved parameters are used without repeated confirmation even in
+password-login mode (do not add `--yes` just to skip redundant prompts).
+The preflight also reads the non-secret OCI region metadata. Known regions
+provide country/city names and the next unused display number, so `--name` and
+`--region` can be omitted. Explicit names take precedence; unknown/unavailable
+metadata still requires a name and region rather than guessing from GeoIP.
+
+`--ports` is the provider's allocated range; the wizard excludes the SSH port,
+then chooses separate management and proxy TCP ports. Split allocations can still
+use `--tcp-ports` and `--udp-ports`. Inventory matching uses the supplied allocation
+or saved proxy port, so separate NAT containers sharing a public IP are not merged.
+New endpoints with a non-22 SSH port default
+to VLESS REALITY TCP, avoiding the failed-HY2/manual-migration cycle seen with
+128 MiB NAT containers. Use `--protocol vless` for TCP on a dedicated host or
+`--protocol hysteria` when UDP is deliberately requested. Auto mode preserves
+existing catalog protocols and saved retry profiles; it does not migrate them.
+NAT allocations must be provided explicitly; the wizard never assumes public
+48180/8443 forwarding for a fresh NAT host.
+
+New TCP installations use Xray 26.6.27, verified against the official SHA256
+digest, with the prior binary backed up privately. A fresh-install marker allows
+retrying an interrupted core download. Existing unmarked installations with a
+different core are rejected rather than automatically downgraded. Registration
+creates REALITY keys once and probes with a temporary, matching VLESS UUID before
+publishing; failed probes preserve installation/inbound state but do not publish.
+Retries reuse keys, inbound IDs and counters. No staged catalog or manual TCP
+migration script is needed for new TCP nodes.
+
+Passwords are entered directly into OpenSSH, never passed in flags or saved.
+An authentication failure is not an installation failure: confirm the root
+username/password with the provider before retrying. Do not repeatedly install
+or change firewall settings to troubleshoot rejected SSH credentials.
 
 The wizard reads the inventory before connecting to the target (retired nodes are
 rejected), checks root access, OS/architecture, cgroup memory and occupied ports,
@@ -63,9 +96,17 @@ default management/proxy ports are 48180/TCP and 8443/UDP; NAT allocations must 
 entered explicitly. It bootstraps dependencies on new Alpine/Debian/Ubuntu hosts,
 reuses a complete existing installation and refuses to overwrite partial installs.
 The final step checks publication, the dedicated monitor's subscription, catalog
-observation and aggregate member-sync progress; it refreshes the normal probe and
+observation, this node's member binding coverage and aggregate member-sync progress;
+it also names other active offline nodes, excluding retired nodes. Complete local
+binding coverage is not a claim that global entitlement synchronization completed.
+It refreshes the normal probe and
 reports the latest timestamped connectivity result separately. Pending sync is not
-reported as completed. Cloud/NAT forwarding cannot be provisioned by this tool.
+reported as completed. If Clash Verge is installed locally, it also runs isolated
+Mihomo verification for the selected node after publication; a local failure is
+reported separately from the master's pre-publication probe, without modifying the
+OS proxy or withdrawing an otherwise working endpoint. Recheck with
+`python3 deploy/verify_clients.py --node PUBLIC_IPV4`.
+Cloud/NAT forwarding cannot be provisioned by this tool.
 
 This quick path creates NEW nodes with no aggregate traffic cap, as requested for
 small rented nodes; existing capped nodes retain their allocation. Use the advanced
@@ -91,6 +132,10 @@ python3 deploy/node_manager.py add --ssh SSH_ALIAS --ip PUBLIC_IPV4 \
   --management-port 48180 --port 8443 --name '🇯🇵 日本 · 东京 03' \
   --region 日本 --quota-group ACCOUNT_KEY --quota-tb 0.5 --prepare
 ```
+
+The advanced command also accepts `--protocol vless`; unlike the wizard it does
+not infer NAT transport from SSH port. For existing nodes, omission preserves the
+catalog protocol, and an explicitly conflicting protocol is rejected.
 
 Use a real OCI account key, not a new group for every server. An existing group
 must have unallocated capacity. Registering an existing endpoint with a lower
@@ -231,6 +276,31 @@ rerunning the wizard; the saved host/port profile supports `--check` without ali
 Its aggregate node quota is unlimited; customer package billing remains enabled.
 Two 20 MB proxy downloads measured 36.85–41.57 Mbps from the operator workstation;
 these are point-in-time end-to-end measurements, not a guaranteed line rate.
+
+ck24 was added on 2026-10-20 as `🇲🇽 墨西哥 · 克雷塔罗 01` (node/inbound 13/13).
+OCI metadata reports `mx-queretaro-1`; public IP `159.54.136.182`, SSH
+`21115 -> 22`, management TLS `21116`, VLESS REALITY TCP `21117`.
+It is a 128 MiB Alpine ARM64 NAT container. The initial HY2 probe failed and
+withheld publication. The existing TCP migration helper was used with a staged
+catalog; master Xray and isolated local Mihomo requests both passed before the
+live catalog was updated. Xray is pinned to 26.6.27, with the official archive's
+SHA256 verified; the prior binary is privately backed up on the node.
+Keep its TCP transport and do not rerun preparation. The host/port onboarding
+profile is saved locally. Aggregate traffic is unlimited (`ck24-unlimited`);
+customer entitlements continue through the normal billing/outbox path.
+
+ck42 was added through `npm run node:add` on 2026-10-20 as
+`🇨🇦 加拿大 · 蒙特利尔 01` (node/inbound 14/14). OCI metadata reports
+`ca-montreal-1`; public IP `147.15.146.142`, SSH `21205 -> 22`,
+management TLS `21206`, VLESS REALITY TCP `21207`.
+This 128 MiB Alpine ARM64 NAT container used the direct TCP onboarding path,
+including the verified Xray 26.6.27 pin and a successful pre-publication proxy
+probe. The final isolated local Mihomo check also passed, and all 36 customer
+identities were bound. Global sync remained pending while Osaka was offline;
+this is distinct from ck42's own healthy configuration and connectivity.
+No manual transport migration or staged catalog was needed.
+Its aggregate quota group is `unlimited-147-15-146-142`; customer billing remains
+enabled. Reuse its saved host/SSH-port profile and do not rerun preparation.
 
 The group budget sums managed VPN inbound allowances. Tokyo and Singapore each
 currently use 8 TB + 1 TB slices. Other group allocations are 9 TB. Counters remain

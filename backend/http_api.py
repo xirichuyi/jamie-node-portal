@@ -39,6 +39,15 @@ class Handler(BaseHTTPRequestHandler):
         self.handle_api(True)
 
     def handle_api(self, write):
+        # A peer can disappear while sending either success or error replies.
+        # Catch outside error translation as exceptions raised in an except
+        # block are not handled by its sibling except clauses.
+        try:
+            self.respond_api(write)
+        except (BrokenPipeError, ConnectionResetError):
+            pass
+
+    def respond_api(self, write):
         try:
             self.route(write)
         except HttpError as exc:

@@ -83,13 +83,8 @@ import {
   GettingStarted,
   UsagePanel,
   Redemption,
-  Tickets,
-  type TicketDraft,
-  Sessions,
-  Recover,
   ServiceStatus,
   ServiceBrief,
-  Operations,
 } from './features';
 import {
   useNavigation,
@@ -107,9 +102,15 @@ import {
   HelpPage,
   Contact,
   PageTitle,
-  ContentAdmin,
   type Catalog,
 } from './content';
+
+import type { TicketDraft } from './account-features';
+const Tickets = React.lazy(() => import('./account-features').then(m => ({ default: m.Tickets })));
+const Sessions = React.lazy(() => import('./account-features').then(m => ({ default: m.Sessions })));
+const Recover = React.lazy(() => import('./account-features').then(m => ({ default: m.Recover })));
+const Operations = React.lazy(() => import('./admin-operations').then(m => ({ default: m.Operations })));
+const ContentAdmin = React.lazy(() => import('./admin-content').then(m => ({ default: m.ContentAdmin })));
 
 type Me = {
   user: { username: string; admin: boolean; must_change: boolean };
@@ -172,6 +173,8 @@ function App() {
   const [content, setContent] = useState<Catalog | null>(null);
   const [contentError, setContentError] = useState('');
   const contentRequest = useRef(0);
+  const accountRequests = useRef(0);
+  const accountVersion = useRef(0);
   async function loadContent() {
     const version = ++contentRequest.current;
     try {
@@ -214,9 +217,13 @@ function App() {
     if (me && !me.user.must_change && ['login', 'register'].includes(view))
       setView(pendingCard() ? 'redeem' : 'home', true);
   }, [me, view, setView]);
-  async function load() {
+  async function load(background = false) {
+    if (background && accountRequests.current) return null;
+    accountRequests.current++;
+    const version = ++accountVersion.current;
     try {
       const m = await api<Me>('me');
+      if (version !== accountVersion.current) return m;
       setMe(m);
       try {
         localStorage.setItem('jamie-returning', '1');
@@ -225,12 +232,13 @@ function App() {
       return m;
     } catch (e) {
       if (e instanceof ApiError && e.status === 401) {
-        setMe(null);
+        if (version === accountVersion.current) setMe(null);
         return null;
       }
       throw e;
     } finally {
-      setLoaded(true);
+      accountRequests.current--;
+      if (version === accountVersion.current) setLoaded(true);
     }
   }
   async function act(fn: () => Promise<void>) {
@@ -241,7 +249,10 @@ function App() {
       await fn();
     } catch (e) {
       setError(e instanceof Error ? e.message : '请求失败，请重试');
-      if (e instanceof ApiError && e.status === 401) setMe(null);
+      if (e instanceof ApiError && e.status === 401) {
+        accountVersion.current++;
+        setMe(null);
+      }
     } finally {
       setBusy(false);
     }
@@ -263,7 +274,7 @@ function App() {
     if (!me) return;
     const refresh = () => {
       if (document.visibilityState === 'visible')
-        void load().catch((e) => setError(e.message));
+        void load(true).catch((e) => setError(e.message));
     };
     document.addEventListener('visibilitychange', refresh);
     return () => document.removeEventListener('visibilitychange', refresh);
@@ -284,8 +295,14 @@ function App() {
   }, []);
   useEffect(() => {
     if (me?.subscription.pending) {
-      const id = setInterval(() => void load().catch(() => {}), 5000);
-      return () => clearInterval(id);
+      let stopped = false;
+      let timer: ReturnType<typeof setTimeout>;
+      const refresh = async () => {
+        if (document.visibilityState === 'visible') await load(true).catch(() => {});
+        if (!stopped) timer = setTimeout(refresh, 15000);
+      };
+      timer = setTimeout(refresh, 15000);
+      return () => { stopped = true; clearTimeout(timer); };
     }
   }, [me?.subscription.pending]);
   // Feedback floats above the page so it stays visible after long scrolls.
@@ -428,7 +445,8 @@ function App() {
             </button>
           </div>
         )}
-        {!loaded ? (
+        <React.Suspense fallback={<p role="status">正在加载页面…</p>}>
+        {!loaded && !['plans', 'guide', 'help', 'notices', 'recover', 'orders'].includes(view) ? (
           <section className="intro">
             <p className="eyebrow">JAMIE-NODE</p>
             <h1>正在读取你的订阅</h1>
@@ -664,6 +682,7 @@ function App() {
                 logout={() =>
                   void act(async () => {
                     await api('logout', {});
+                    accountVersion.current++;
                     setMe(null);
                     setView('account', true);
                   })
@@ -748,6 +767,7 @@ function App() {
                   onClick={() =>
                     void act(async () => {
                       await api('logout', {});
+                      accountVersion.current++;
                       setMe(null);
                       setView('home');
                     })
@@ -760,6 +780,7 @@ function App() {
             )}
           </>
         )}
+        </React.Suspense>
         <footer>
           Jamie-Node <span>·</span>{' '}
           <a href="https://blog.chuyi.uk" target="_blank" rel="noreferrer">

@@ -1,5 +1,4 @@
 """Local deployment. Never print credentials; keep handoff file owner-only."""
-import datetime
 import io
 import json
 import os
@@ -7,7 +6,6 @@ from pathlib import Path
 import shlex
 import subprocess
 import tarfile
-import tempfile
 
 ROOT=Path(__file__).resolve().parent.parent
 os.umask(0o077)
@@ -17,10 +15,18 @@ def ssh(command, data=None):
     return p.stdout
 
 archive=io.BytesIO()
+public = ROOT / 'dist/portal'
+if not (public / 'index.html').is_file():
+    raise SystemExit('Frontend build missing. Run npm run verify before deployment.')
+runtime_files = ['install.py', 'portal_runtime.py', 'subscription_adapter.py']
+runtime_files += [p.name for p in (ROOT / 'deploy').glob('jamie-portal*.service')]
+runtime_files += [p.name for p in (ROOT / 'deploy').glob('jamie-portal*.timer')]
 with tarfile.open(fileobj=archive,mode='w:gz') as tar:
-    tar.add(ROOT/'backend',arcname='backend',filter=lambda x:None if '__pycache__' in x.name else x)
-    tar.add(ROOT/'dist/portal',arcname='public')
-    tar.add(ROOT/'deploy',arcname='deploy')
+    tar.add(ROOT/'backend',arcname='backend',filter=lambda x:
+            None if '__pycache__' in x.name or Path(x.name).name.startswith('test_') else x)
+    tar.add(public,arcname='public')
+    for name in sorted(runtime_files):
+        tar.add(ROOT/'deploy'/name,arcname='deploy/'+name)
 stage=ssh('mktemp -d /root/jamie-portal-stage.XXXXXX').decode().strip()
 if not stage.startswith('/root/jamie-portal-stage.'):
     raise SystemExit('Unexpected staging directory')
@@ -53,4 +59,5 @@ if check==b'new':
     private.chmod(0o600)
     ssh('chown -R jamie-portal:jamie-portal /var/lib/jamie-portal')
 print(ssh('python3 '+shlex.quote(stage+'/deploy/install.py')).decode())
+ssh('rm -rf -- '+shlex.quote(stage))
 print('Admin credentials, when newly created, saved privately to private-admin.json')

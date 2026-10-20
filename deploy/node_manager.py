@@ -54,6 +54,8 @@ def main(argv=None):
     parser.add_argument('--ip')
     parser.add_argument('--management-port', type=int)
     parser.add_argument('--port', type=int, default=8443)
+    parser.add_argument('--protocol', choices=['hysteria', 'vless'],
+                        help='New-node transport; existing nodes retain their protocol')
     parser.add_argument('--memory-mib', type=int, default=320)
     parser.add_argument('--cpu-percent', type=int, default=50)
     parser.add_argument('--name', help='Public flag + region + optional number, no machine name')
@@ -127,6 +129,9 @@ def main(argv=None):
     existing = next(
         (n for n in candidate['nodes'] if (n['server'], n['port']) == (args.ip, args.port)), None
     )
+    protocol = args.protocol or (existing or {}).get('protocol', 'hysteria')
+    if existing and protocol != existing.get('protocol', 'hysteria'):
+        parser.error('Transport migration is a separate operation; existing protocol is preserved')
     row = {
         'server': args.ip,
         'port': args.port,
@@ -135,6 +140,7 @@ def main(argv=None):
         'quota_group': args.quota_group,
         'quota_bytes': int(args.quota_tb * 10**12),
         'enabled': True,
+        'protocol': protocol,
         'node_id': existing['node_id'] if existing else 2147483647,
         'inbound_id': existing['inbound_id']
         if existing
@@ -169,6 +175,11 @@ def main(argv=None):
             f'bash -s -- {args.ip} {args.management_port} {master_ip} {args.memory_mib} {args.cpu_percent}',
             (ROOT / script).read_bytes(),
         )
+        if protocol == 'vless':
+            ssh(args.host, 'touch /etc/x-ui/jamie-new-tcp-core')
+    if protocol == 'vless' and not existing:
+        # Only installations marked freshly prepared may change core version.
+        ssh(args.host, 'python3 -', (ROOT / 'prepare_tcp_core.py').read_bytes())
     # This maintenance helper is bundled here, rather than depending on another checkout.
     ssh(args.host, 'python3 -', (ROOT / 'node_settings.py').read_bytes())
     env = {}
