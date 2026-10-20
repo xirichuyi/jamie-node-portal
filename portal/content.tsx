@@ -265,7 +265,9 @@ export function NodeStatus({
         </Button>
       </div>
       {error && <p className="message error">{error}</p>}
-      {data ? (
+      {data && !data.nodes.length ? (
+        <p className="muted">暂无节点</p>
+      ) : data ? (
         <div className="region-grid">
           {data.nodes.map((n) => (
             <article className="region-card" key={n.id}>

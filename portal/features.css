@@ -288,3 +288,16 @@
     padding: 20px !important;
   }
 }
+/* Inputs inside feature forms match the auth forms: one height everywhere. */
+.feature-field [data-slot='input'] {
+  height: 44px;
+  font-size: 1rem;
+  background: var(--jamie-glass);
+}
+.feature-field select {
+  min-height: 44px;
+  padding-block: 0;
+}
+.feature-split .node-panel + .section {
+  margin-top: 32px;
+}

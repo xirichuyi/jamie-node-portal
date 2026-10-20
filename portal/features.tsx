@@ -56,7 +56,14 @@ export function PackageBalances({ packages }: { packages: PackageBalance[] }) {
 }
 export const when = (n: number | null) =>
   n
-    ? new Date(n * 1000).toLocaleString('zh-CN', { hour12: false })
+    ? new Date(n * 1000).toLocaleString('zh-CN', {
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false,
+      })
     : '暂无记录';
 const size = (n: number) =>
   n >= 1024 ** 3

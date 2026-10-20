@@ -12,6 +12,9 @@ import {
   Monitor,
   Ticket,
   BarChart3,
+  ReceiptText,
+  CircleHelp,
+  Activity,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
@@ -314,15 +317,15 @@ export function AccountHub({
         ['subscription', '连接与订阅', Globe2],
         ['usage', '用量明细', BarChart3],
         ['history', '兑换记录', History],
-        ['orders', '支付订单', History],
+        ['orders', '支付订单', ReceiptText],
       ],
     },
     {
       title: '支持与帮助',
       items: [
         ['tickets', '我的工单', LifeBuoy],
-        ['help', '常见问题', LifeBuoy],
-        ['status', '服务状态', Globe2],
+        ['help', '常见问题', CircleHelp],
+        ['status', '服务状态', Activity],
       ],
     },
     {

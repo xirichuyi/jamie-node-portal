@@ -410,6 +410,13 @@ function StaffAlerts() {
     </div>
   );
 }
+// "Chrome · macOS" instead of a raw user-agent string.
+export function deviceLabel(agent: string | null | undefined) {
+  if (!agent) return '未知设备';
+  const browser = /Edg\//.test(agent) ? 'Edge' : /OPR\//.test(agent) ? 'Opera' : /MicroMessenger/.test(agent) ? '微信' : /Firefox\//.test(agent) ? 'Firefox' : /Chrome\/|CriOS/.test(agent) ? 'Chrome' : /Safari\//.test(agent) ? 'Safari' : '浏览器';
+  const system = /iPhone/.test(agent) ? 'iPhone' : /iPad/.test(agent) ? 'iPad' : /Android/.test(agent) ? 'Android' : /Mac OS X|Macintosh/.test(agent) ? 'macOS' : /Windows/.test(agent) ? 'Windows' : /Linux/.test(agent) ? 'Linux' : '';
+  return system ? `${browser} · ${system}` : browser;
+}
 export function NotificationPreferences({ ticketOnly = false }: { ticketOnly?: boolean }) {
   type Preference = 'ticket_email' | 'traffic_email' | 'expiry_email';
   const { data, reload } = useData<Record<Preference, boolean> & { available: boolean }>('notifications');
@@ -419,13 +426,15 @@ export function NotificationPreferences({ ticketOnly = false }: { ticketOnly?: b
     ['expiry_email', '到期前 3 天提醒'],
     ['ticket_email', '工单有新回复时提醒'],
   ];
+  if (ticketOnly && data && !data.available) return null;
+  const available = !!data?.available;
   return <div className="notification-preference">
     {!ticketOnly && <h2>邮件提醒</h2>}
-    {options.map(([field, label]) => <label key={field} style={{ display: 'block' }}><input type="checkbox" checked={!!data?.[field]} disabled={!data || work.busy} onChange={e => {
+    {options.map(([field, label]) => <label key={field}><input type="checkbox" checked={available && !!data?.[field]} disabled={!available || work.busy} onChange={e => {
       const enabled = e.target.checked;
       void work.run(async () => { await api('notifications', { [field]: enabled }); await reload(); });
     }} /> {label}</label>)}
-    {data && !data.available && <small className="muted">需绑定邮箱且邮件服务可用。</small>}
+    {data && !data.available && <small className="muted">绑定邮箱后可开启</small>}
     {work.feedback}
   </div>;
 }
@@ -509,7 +518,7 @@ export function Sessions() {
             <div className="session-row" key={s.id}>
               <div>
                 <strong>{s.current ? '当前会话' : '其他登录'}</strong>
-                <p className="small session-agent">{s.agent || '未知浏览器'}</p>
+                <p className="small session-agent" title={s.agent || undefined}>{deviceLabel(s.agent)}</p>
                 <p className="small muted">
                   {s.ip || 'IP 未记录'} · 最近活动 {when(s.seen)}
                 </p>

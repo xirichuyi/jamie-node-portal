@@ -148,9 +148,11 @@ main.wide:is(
 .announcements-panel .section-heading:empty { display: none; }
 .notice-dialog { max-width: 560px; }
 .notice-dialog .notice-full-body { padding: 12px 0; font-size: 0.9375rem; }
-.notification-preference { margin: 0 0 24px; font-size: .875rem; }
+.notification-preference { margin: 32px 0 24px; font-size: .875rem; }
+.notification-preference h2 { margin-bottom: 4px; }
 .notification-preference label { display: flex; align-items: center; gap: 10px; min-height: 44px; }
-.notification-preference input { width: 18px; height: 18px; accent-color: var(--jamie-accent); }
+.notification-preference input { flex: none; width: 18px; height: 18px; accent-color: var(--jamie-accent); }
+.notification-preference label:has(input:disabled) { color: var(--muted-foreground); }
 .notification-preference small { display: block; }
 .ticket-unread { color: var(--jamie-accent); }
 .delete-account-button { color: var(--destructive); }
@@ -159,7 +161,7 @@ main.wide:is(
 .package-detail-row { display:grid; grid-template-columns:1.2fr 1fr 1fr; gap:16px; padding:20px 0; border-bottom:1px solid var(--border); font-size:.875rem; }
 .package-detail-row:last-child { border-bottom:0; }
 .package-detail-row > div { min-width:0; overflow-wrap:anywhere; }
-@media(max-width:700px) { .package-detail-row { grid-template-columns:1fr 1fr; } .package-detail-row > div:first-child { grid-column:1 / -1; } }
+@media(max-width:700px) { .package-detail-row { grid-template-columns:1fr 1fr; } .package-detail-row > div:first-child { grid-column:1 / -1; } .package-detail-row { grid-template-columns:minmax(0,1fr) auto; } .package-detail-row > div:nth-child(2) small { white-space:nowrap; } }
 .entry-notice-title > span {
   font-size: 0.8125rem;
   flex-shrink: 0;
@@ -1184,13 +1186,16 @@ body > footer,
   .home-connect .connection-panel {
     padding: 20px;
   }
-  .home-connect .actions {
+  .home-connect .actions,
+  .subscription-layout .connection-panel > .actions {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
     width: 100%;
   }
-  .home-connect .actions > :first-child { grid-column: 1 / -1; }
-  .home-connect .actions > * { width: 100%; min-height: 44px; }
+  .home-connect .actions > :first-child,
+  .subscription-layout .connection-panel > .actions > :first-child { grid-column: 1 / -1; }
+  .home-connect .actions > *,
+  .subscription-layout .connection-panel > .actions > * { width: 100%; min-height: 44px; }
   .quota-sheet {
     padding: 20px;
     border-right: 0;
@@ -1325,4 +1330,7 @@ main.wide.auth-layout {
     transition: none !important;
     animation: none !important;
   }
+}
+.journey-dashboard > .message {
+  margin-top: 16px;
 }
