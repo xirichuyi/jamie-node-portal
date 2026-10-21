@@ -132,10 +132,18 @@ class CycleTests(unittest.TestCase):
             {'reset_period': 'bad'},
             {'reset_period': 'monthly', 'reset_day': 1},
             {'reset_period': 'interval', 'reset_interval': 0},
-            {'kind': 'addon', 'permanent': True},
         ):
             with self.assertRaises(DomainError):
                 self.ledger.issue('admin', 'Invalid', 1, 30, 1, 30, **rule)
+
+    def test_panel_style_flexible_issue(self):
+        # 0 days = no expiry, fractional GiB, add-ons ignore their own duration.
+        spec = self.ledger.card_spec('Pack', 0.5, 0, 1, 0)
+        self.assertEqual((spec['quota'], spec['rule']['permanent']), (GIB // 2, 1))
+        addon = self.ledger.card_spec('Add', 2, 30, 1, 0, 'addon', permanent=True)
+        self.assertEqual(addon['rule']['permanent'], 0)
+        with self.assertRaises(DomainError):
+            self.ledger.card_spec('Tiny', 0.0001, 30, 1, 0)
 
     def test_counter_rollback_does_not_grant_cycle(self):
         user, member = self.create(permanent=True, reset_period='interval', reset_interval=1)

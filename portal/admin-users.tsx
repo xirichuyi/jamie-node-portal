@@ -404,7 +404,6 @@ export function UserManager({
       <header className="page-heading">
         <div>
           <h1>用户管理</h1>
-          <p className="muted">查找用户，查看订阅与处理记录。</p>
         </div>
         <div className="actions">
           <Button
@@ -529,18 +528,22 @@ export function UserManager({
                 {!!u.admin && <small className="sync-caption">管理员</small>}
               </TableCell>
               <TableCell data-label="套餐">
-                {u.plan_name || '尚未开通'}
+                {u.plan_name || <span className="muted">—</span>}
               </TableCell>
               <TableCell data-label="剩余 / 总流量">
-                {volume(u.remaining)} / {volume(u.quota)} GiB
+                {u.quota ? `${volume(u.remaining)} / ${volume(u.quota)} GiB` : <span className="muted">—</span>}
               </TableCell>
               <TableCell data-label="最近到期">
-                {u.expires ? expiryLabel(u.expires) : '尚未开通'}
-                <small className="sync-caption">
-                  {laterDay(u)
-                    ? `最晚 ${expiryLabel(u.final_expires!)}`
-                    : remainingTime(u.expires)}
-                </small>
+                {u.expires ? (
+                  <>
+                    {expiryLabel(u.expires)}
+                    <small className="sync-caption">
+                      {laterDay(u) ? `最晚 ${expiryLabel(u.final_expires!)}` : remainingTime(u.expires)}
+                    </small>
+                  </>
+                ) : (
+                  <span className="muted">—</span>
+                )}
               </TableCell>
               <TableCell data-label="状态">
                 <UserStatus member={u} />
@@ -550,12 +553,12 @@ export function UserManager({
                   {u.proxy_activity === 'recent'
                     ? '最近有流量'
                     : u.proxy_activity === 'unknown'
-                      ? '代理活动未知'
-                      : '暂无近期流量记录'}
+                      ? '—'
+                      : '近期无流量'}
                 </span>
-                <small className="sync-caption">
-                  网站：{time(u.last_web_seen)}
-                </small>
+                {!!u.last_web_seen && (
+                  <small className="sync-caption">网站 {time(u.last_web_seen)}</small>
+                )}
                 {!!u.counter_reset && (
                   <small className="sync-caption">流量计数回退，需核对</small>
                 )}

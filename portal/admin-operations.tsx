@@ -107,7 +107,7 @@ export function Operations({
       <PageTitle
         eyebrow="OPERATIONS"
         title="运营概览"
-        description="优先处理待办，及时发现服务异常。"
+        description=""
       />
       <div className="actions">
         <Button onClick={() => navigate('admin')}>生成卡密</Button>

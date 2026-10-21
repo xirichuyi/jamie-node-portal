@@ -24,6 +24,13 @@ def integer(data, key, minimum, maximum):
     return value
 
 
+def gib(value):
+    """Plan quota in GiB; fractions are allowed as in the panel."""
+    if type(value) not in (int, float) or not 0.01 <= value <= MAX_GIB:
+        raise DomainError('数值超出允许范围：quota_gib')
+    return value
+
+
 def flag(data, key):
     if type(data.get(key)) is not bool:
         raise DomainError('状态参数不正确：' + key)
@@ -175,13 +182,16 @@ class Content:
             values = {
                 'name': text(data, 'name', 60),
                 'description': text(data, 'description', 500, False),
-                'quota_gib': integer(data, 'quota_gib', 1, MAX_GIB),
-                'days': 1 if data.get('permanent') else integer(data, 'days', 1, 365000),
+                'quota_gib': gib(data.get('quota_gib')),
+                'days': 1 if data.get('permanent') else integer(data, 'days', 0, 365000),
                 'price_label': text(data, 'price_label', 40, False),
                 'badge': text(data, 'badge', 20, False),
                 'published': flag(data, 'published'),
                 'sort_order': integer(data, 'sort_order', 0, 999),
             }
+            if not values['days']:  # 0 days = no expiry, as in the panel.
+                values['days'] = 1
+                data = {**data, 'permanent': True}
             values.update(rules(data))
             if 'usdt_price' in data:
                 values['usdt_micros'] = micros(data['usdt_price'] or '0', allow_zero=True)

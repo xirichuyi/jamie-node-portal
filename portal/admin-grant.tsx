@@ -16,7 +16,7 @@ import {
   DialogDescription,
 } from '@/components/ui/dialog';
 import { api } from './api';
-import { CycleFields, expiryLabel, ruleLabel, type CycleRule } from './cycles';
+import { TermsFields, termsBody, defaultTerms, expiryLabel, ruleLabel, type Terms } from './cycles';
 import type { Plan } from './content';
 import type { PackageBalance } from './features';
 import { notify } from './toast';
@@ -49,9 +49,8 @@ export function GrantDialog({
   const [planId, setPlanId] = useState('');
   const [target, setTarget] = useState('');
   const [label, setLabel] = useState('');
-  const [quota, setQuota] = useState(10);
-  const [days, setDays] = useState(30);
-  const [cycle, setCycle] = useState<CycleRule>({ permanent: 0, reset_period: 'never', reset_interval: 30 });
+  const [terms, setTerms] = useState<Terms>({ ...defaultTerms, quota_gib: 10 });
+  const quota = terms.quota_gib;
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   useEffect(() => {
@@ -70,7 +69,7 @@ export function GrantDialog({
         : '请选择套餐'
       : mode === 'addon'
         ? `${quota} GiB 加到「${targetPackage?.label || '—'}」，不延长有效期`
-        : `${label || '—'} · ${quota} GiB · ${ruleLabel({ ...cycle, days })}`;
+        : `${label || '—'} · ${quota} GiB · ${ruleLabel(termsBody(terms))}`;
   const submit = async () => {
     setBusy(true);
     setError('');
@@ -80,16 +79,7 @@ export function GrantDialog({
           ? { id: member.id, plan_id: planId }
           : mode === 'addon'
             ? { id: member.id, label, kind: 'addon', quota_gib: quota, target }
-            : {
-                id: member.id,
-                label,
-                kind: 'base',
-                quota_gib: quota,
-                days: cycle.permanent ? 1 : days,
-                permanent: !!cycle.permanent,
-                reset_period: cycle.reset_period || 'never',
-                reset_interval: cycle.reset_interval || 30,
-              };
+            : { id: member.id, label, kind: 'base', ...termsBody(terms) };
       await api('admin/grant', body);
       setOpen(false);
       notify(`已为 ${member.username} 发放：${summary}`);
@@ -170,29 +160,11 @@ export function GrantDialog({
                 <span>名称（用户可见）</span>
                 <Input value={label} maxLength={60} onChange={(e) => setLabel(e.target.value)} />
               </label>
-              <label className="field">
-                <span>流量（GiB）</span>
-                <Input
-                  type="number"
-                  min={1}
-                  max={8388607}
-                  value={quota}
-                  onChange={(e) => setQuota(Number(e.target.value))}
-                />
-              </label>
-              {mode === 'custom' && packageBilling && <CycleFields value={cycle} onChange={setCycle} />}
-              {mode === 'custom' && !cycle.permanent && (
-                <label className="field">
-                  <span>有效天数</span>
-                  <Input
-                    type="number"
-                    min={1}
-                    max={365000}
-                    value={days}
-                    onChange={(e) => setDays(Number(e.target.value))}
-                  />
-                </label>
-              )}
+              <TermsFields
+                value={terms}
+                quotaOnly={mode === 'addon' || !packageBilling}
+                onChange={(patch) => setTerms({ ...terms, ...patch })}
+              />
             </div>
           )}
           <p className="grant-summary">
@@ -213,7 +185,7 @@ export function GrantDialog({
                 busy ||
                 (mode === 'plan' && !plan) ||
                 (mode === 'addon' && !targetPackage) ||
-                (mode !== 'plan' && (!label.trim() || !(quota >= 1)))
+                (mode !== 'plan' && (!label.trim() || !(quota > 0)))
               }
               onClick={() => void submit()}
             >

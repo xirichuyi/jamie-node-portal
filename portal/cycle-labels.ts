@@ -14,7 +14,7 @@ export const expiryLabel = (n: number) =>
       ? new Date(n * 1000).toLocaleDateString('zh-CN')
       : '—';
 export function ruleLabel(rule: CycleRule) {
-  const duration = rule.permanent ? '永久有效' : `${rule.days} 天`;
+  const duration = rule.permanent || rule.days === 0 ? '永久有效' : `${rule.days} 天`;
   const reset =
     rule.reset_period === 'monthly'
       ? '按开通日每月重置'

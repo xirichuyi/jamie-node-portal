@@ -174,33 +174,41 @@ class Ledger:
             self.audit(db, actor, 'card.note', card_id)
 
     def card_spec(self, label, quota_gib, days, count, valid_days, kind='base', **options):
-        """Validate one issuing request; shared by card batches and direct grants."""
+        """Validate one issuing request; shared by card batches and direct grants.
+
+        Mirrors the panel's flexibility: fractional GiB, and 0 days means no expiry.
+        """
         from cycles import rules, MAX_GIB
 
-        rule = rules(options)
-        if (rule['permanent'] or rule['reset_period'] != 'never') and not self.package_billing:
-            raise DomainError('请先启用套餐计费')
-        if kind == 'addon' and (rule['permanent'] or rule['reset_period'] != 'never'):
-            raise DomainError('加流量卡不单独设置期限或重置周期')
-        if rule['permanent']:
-            days = 1  # Preserve the historical SQL CHECK; permanent is explicit.
         if kind not in ('base', 'addon') or (kind == 'addon' and not self.package_billing):
             raise DomainError('流量包计费尚未启用')
         if kind == 'addon':
+            # An add-on always follows its parent package's expiry and cycle.
+            options = {**options, 'permanent': False, 'reset_period': 'never'}
             days = 1  # Historical SQL CHECK(days>0); addon duration is never used.
-        if not all(type(v) is int for v in (quota_gib, days, count, valid_days)):
-            raise DomainError('请输入整数')
+        elif days == 0:
+            options = {**options, 'permanent': True}
+        rule = rules(options)
+        if (rule['permanent'] or rule['reset_period'] != 'never') and not self.package_billing:
+            raise DomainError('请先启用套餐计费')
+        if rule['permanent']:
+            days = 1  # Preserve the historical SQL CHECK; permanent is explicit.
+        if type(quota_gib) not in (int, float) or not all(
+            type(v) is int for v in (days, count, valid_days)
+        ):
+            raise DomainError('请输入数字')
+        quota = round(quota_gib * GIB)
         if not isinstance(label, str) or not (
-            1 <= quota_gib <= MAX_GIB
+            2**20 <= quota <= MAX_GIB * GIB
             and 1 <= days <= 365000
-            and 1 <= count <= 100
+            and 1 <= count <= 1000
             and 0 <= valid_days <= 365000
             and 1 <= len(label.strip()) <= 60
         ):
             raise DomainError('卡密参数超出范围')
         return {
             'label': label.strip(),
-            'quota': quota_gib * GIB,
+            'quota': quota,
             'days': days,
             'valid_days': valid_days,
             'kind': kind,

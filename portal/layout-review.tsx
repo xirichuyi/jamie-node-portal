@@ -13,7 +13,7 @@ import { Connection, UsagePanel } from './features';
 import { Tickets, Sessions, DeleteAccount } from './account-features';
 import { Operations } from './admin-operations';
 import { Button } from '@/components/ui/button';
-import { CycleFields } from './cycles';
+import { TermsFields, defaultTerms } from './cycles';
 import '@/app/globals.css';
 import './style.css';
 import './content.css';
@@ -265,7 +265,7 @@ function Review() {
         )}
         {view === 'tickets' && <Tickets />}
         {view === 'sessions' && <Sessions />}
-        {view === 'cycles' && <section className="surface"><h2>周期套餐设置</h2><div className="form-grid"><CycleFields /></div></section>}
+        {view === 'cycles' && <section className="surface"><h2>周期套餐设置</h2><div className="form-grid"><TermsFields value={defaultTerms} onChange={() => {}} /></div></section>}
         {view === 'delete-admin' && <section className="user-detail-section"><h2>账号操作</h2><div className="actions"><Button variant="outline">重置密码</Button><Button variant="outline">退出网站登录</Button><Button variant="outline">停用账号</Button><DeleteAccount username="jamie@example.com" userId="fixture-user" /></div></section>}
         {view === 'usage' && <><PageTitle eyebrow="" title="用量明细" description="" /><UsagePanel navigate={navigate} /></>}
       </main>

@@ -467,7 +467,7 @@ function App() {
                       <PageTitle
                         eyebrow=""
                         title="公告与套餐"
-                        description="套餐、公告与联系方式保存后立即显示在用户端，无需重新部署。"
+                        description=""
                       />
                       <ContentAdmin onSaved={loadContent} />
                     </>

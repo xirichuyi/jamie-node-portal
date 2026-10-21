@@ -1,90 +1,108 @@
-import { useState } from 'react';
 import { Input } from '@/components/ui/input';
-import {
-  Select,
-  SelectTrigger,
-  SelectValue,
-  SelectContent,
-  SelectItem,
-} from '@/components/ui/select';
 export { FOREVER, expiryLabel, ruleLabel, type CycleRule } from './cycle-labels';
 import type { CycleRule } from './cycle-labels';
-export function CycleFields({
+
+/** Panel-style package terms: fractional GiB, 0 days = no expiry, optional reset. */
+export type Terms = CycleRule & { quota_gib: number; days: number };
+export const defaultTerms: Terms = {
+  quota_gib: 100,
+  days: 30,
+  permanent: 0,
+  reset_period: 'never',
+  reset_interval: 30,
+};
+/** Request fields for admin/cards, admin/grant and admin/plan. */
+export const termsBody = (t: Terms) => ({
+  quota_gib: t.quota_gib,
+  days: t.permanent ? 0 : t.days,
+  permanent: !!t.permanent || !t.days,
+  reset_period: t.reset_period || 'never',
+  reset_interval: t.reset_interval || 30,
+});
+const quotaChips = [10, 50, 100, 300, 1000];
+const dayChips: [number, string][] = [[7, '7 天'], [30, '30 天'], [90, '90 天'], [365, '1 年'], [0, '永久']];
+
+function Chips<T>({ items, value, onPick }: { items: [T, string][]; value: T; onPick: (v: T) => void }) {
+  return (
+    <span className="term-chips">
+      {items.map(([v, text]) => (
+        <button key={text} type="button" aria-pressed={v === value} onClick={() => onPick(v)}>
+          {text}
+        </button>
+      ))}
+    </span>
+  );
+}
+
+export function TermsFields({
   value,
   onChange,
+  quotaOnly = false,
 }: {
-  value?: CycleRule;
-  onChange?: (rule: CycleRule) => void;
+  value: Terms;
+  onChange: (patch: Partial<Terms>) => void;
+  quotaOnly?: boolean;
 }) {
-  const [local, setLocal] = useState<CycleRule>({
-    permanent: 0,
-    reset_period: 'never',
-    reset_interval: 30,
-  });
-  const rule = value || local;
-  const change = (patch: CycleRule) => {
-    const next = { ...rule, ...patch };
-    setLocal(next);
-    onChange?.(next);
-  };
+  const days = value.permanent ? 0 : value.days;
+  const setDays = (d: number) => onChange({ days: d, permanent: d ? 0 : 1 });
   return (
     <>
       <label className="field">
-        <span>订阅期限</span>
-        <Select
-          name="permanent"
-          value={rule.permanent ? '1' : '0'}
-          onValueChange={(v) => change({ permanent: v === '1' ? 1 : 0 })}
-        >
-          <SelectTrigger>
-            <SelectValue>
-              {rule.permanent ? '永久有效' : '指定天数'}
-            </SelectValue>
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="0">指定天数</SelectItem>
-            <SelectItem value="1">永久有效</SelectItem>
-          </SelectContent>
-        </Select>
+        <span>流量（GiB）</span>
+        <Input
+          name="quota_gib"
+          type="number"
+          required
+          min={0.01}
+          step="any"
+          max={8388607}
+          value={value.quota_gib}
+          onChange={(e) => onChange({ quota_gib: Number(e.target.value) })}
+        />
+        <Chips items={quotaChips.map((q) => [q, q + ' G'])} value={value.quota_gib} onPick={(q) => onChange({ quota_gib: q })} />
       </label>
-      <label className="field">
-        <span>流量重置</span>
-        <Select
-          name="reset_period"
-          value={rule.reset_period || 'never'}
-          onValueChange={(v) => change({ reset_period: v || 'never' })}
-        >
-          <SelectTrigger>
-            <SelectValue>
-              {
-                {
-                  never: '不重置（总流量包）',
-                  monthly: '按开通日每月重置',
-                  interval: '每隔指定天数',
-                }[rule.reset_period || 'never']
-              }
-            </SelectValue>
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="never">不重置（总流量包）</SelectItem>
-            <SelectItem value="monthly">按开通日每月重置</SelectItem>
-            <SelectItem value="interval">每隔指定天数</SelectItem>
-          </SelectContent>
-        </Select>
-      </label>
-      {rule.reset_period === 'interval' && (
-        <label className="field">
-          <span>重置间隔（天）</span>
-          <Input
-            name="reset_interval"
-            type="number"
-            min={1}
-            max={365000}
-            required
-            value={rule.reset_interval || 30}
-            onChange={(e) => change({ reset_interval: Number(e.target.value) })}
-          />
-        </label>
+      {!quotaOnly && (
+        <>
+          <label className="field">
+            <span>有效期（天，0 = 永久）</span>
+            <Input
+              name="days"
+              type="number"
+              required
+              min={0}
+              max={365000}
+              value={days}
+              onChange={(e) => setDays(Math.max(0, Math.trunc(Number(e.target.value))))}
+            />
+            <Chips items={dayChips} value={days} onPick={setDays} />
+          </label>
+          <label className="field">
+            <span>流量重置</span>
+            <select
+              name="reset_period"
+              value={value.reset_period || 'never'}
+              onChange={(e) => onChange({ reset_period: e.target.value })}
+            >
+              <option value="never">不重置（用完为止）</option>
+              <option value="monthly">每月（按开通日）</option>
+              <option value="interval">每 N 天</option>
+            </select>
+          </label>
+          {value.reset_period === 'interval' && (
+            <label className="field">
+              <span>重置间隔（天）</span>
+              <Input
+                name="reset_interval"
+                type="number"
+                min={1}
+                max={365000}
+                required
+                value={value.reset_interval || 30}
+                onChange={(e) => onChange({ reset_interval: Number(e.target.value) })}
+              />
+            </label>
+          )}
+        </>
       )}
     </>
   );

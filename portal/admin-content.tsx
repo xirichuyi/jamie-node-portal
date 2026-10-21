@@ -12,7 +12,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
 import { useEffect, useState, type ReactNode } from 'react';
 import { api } from './api';
-import { CycleFields, ruleLabel } from './cycles';
+import { TermsFields, ruleLabel } from './cycles';
 
 import type { Catalog, Notice, Plan, Support } from './content';
 
@@ -172,32 +172,7 @@ export function ContentAdmin({ onSaved }: { onSaved: () => Promise<void> }) {
               <Field label="USDT 在线售价（留空关闭购买）">
                 <Input type="text" inputMode="decimal" placeholder="例如 3" value={plan.usdt_price || ''} onChange={e => setPlan({ ...plan, usdt_price: e.target.value })} />
               </Field>
-              <Field label="流量（GiB）">
-                <Input
-                  type="number"
-                  required
-                  min={1}
-                  max={8388607}
-                  value={plan.quota_gib}
-                  onChange={(e) =>
-                    setPlan({ ...plan, quota_gib: Number(e.target.value) })
-                  }
-                />
-              </Field>
-              <CycleFields value={plan} onChange={rule => setPlan({ ...plan, ...rule })} />
-              <Field label="有效期（天，永久时忽略）">
-                <Input
-                  type="number"
-                  required
-                  min={1}
-                  max={365000}
-                  disabled={!!plan.permanent}
-                  value={plan.days}
-                  onChange={(e) =>
-                    setPlan({ ...plan, days: Number(e.target.value) })
-                  }
-                />
-              </Field>
+              <TermsFields value={plan} onChange={(patch) => setPlan({ ...plan, ...patch })} />
               <Field label="标签（选填）">
                 <Input
                   maxLength={20}

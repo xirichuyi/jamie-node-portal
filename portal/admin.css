@@ -815,3 +815,49 @@ main.wide.admin-mode {
   margin: 4px 0 0;
   max-width: 460px;
 }
+/* Panel-style package terms: native selects and one-tap value chips. */
+.field select {
+  width: 100%;
+  min-height: 44px;
+  padding: 0 10px;
+  border: 1px solid var(--jamie-border);
+  border-radius: 10px;
+  background: var(--jamie-surface);
+  color: inherit;
+  font: inherit;
+}
+.term-chips,
+.term-presets {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.term-chips {
+  margin-top: 6px;
+}
+.term-presets {
+  margin-bottom: 16px;
+}
+.term-chips button,
+.term-presets button {
+  min-height: 28px;
+  padding: 2px 10px;
+  border: 1px solid var(--jamie-border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted-foreground);
+  font-size: 0.8125rem;
+}
+.term-chips button:hover,
+.term-presets button:hover {
+  color: var(--foreground);
+}
+.term-chips button[aria-pressed='true'] {
+  border-color: var(--jamie-accent);
+  color: var(--foreground);
+  background: var(--jamie-tint);
+}
+.plan-issuer .grant-summary {
+  margin-block: 16px;
+}

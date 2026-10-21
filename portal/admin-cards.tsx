@@ -16,7 +16,7 @@ import {
   DialogDescription,
 } from '@/components/ui/dialog';
 import { api } from './api';
-import { CycleFields, ruleLabel, FOREVER, type CycleRule } from './cycles';
+import { TermsFields, termsBody, defaultTerms, ruleLabel, FOREVER, type Terms } from './cycles';
 import { cardLink } from './card-entry';
 import type { Plan } from './content';
 import { AdminTabs, useAdminTab } from './admin-shell';
@@ -72,8 +72,8 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 }
 function NoteField() {
   return (
-    <Field label="发给谁 / 备注（可选，仅管理员可见）">
-      <Input name="note" maxLength={100} placeholder="例如：张三 微信；之后可逐张修改" />
+    <Field label="备注（仅管理员可见）">
+      <Input name="note" maxLength={100} placeholder="发给谁，可选" />
     </Field>
   );
 }
@@ -83,91 +83,71 @@ async function issue(body: Record<string, unknown>) {
   return r.codes.map((c) => ({ ...c, note }));
 }
 
-function PlanIssuer({ plans, onIssued }: { plans: Plan[]; onIssued: (cards: Issued[]) => void }) {
-  const [selected, setSelected] = useState(plans[0]?.id || '');
-  const [busy, setBusy] = useState(false);
-  const p = plans.find((p) => p.id === selected);
-  return (
-    <section className="plan-issuer">
-      <h2>按套餐发卡</h2>
-      <p className="small muted">使用已保存的套餐规则，不会修改现有卡密。</p>
-      <form
-        onSubmit={(e) => {
-          e.preventDefault();
-          const f = new FormData(e.currentTarget);
-          setBusy(true);
-          void issue({
-            plan_id: selected,
-            count: Number(f.get('count')),
-            valid_days: Number(f.get('valid_days')),
-            note: f.get('note'),
-          })
-            .then(onIssued)
-            .catch((e) => notify(e.message, 'error'))
-            .finally(() => setBusy(false));
-        }}
-      >
-        <div className="form-grid">
-          <div className="field">
-            <span id="issue-plan">套餐</span>
-            <Select value={selected} onValueChange={(v) => setSelected(String(v))}>
-              <SelectTrigger aria-labelledby="issue-plan">
-                <SelectValue>{p ? p.name : '请选择套餐'}</SelectValue>
-              </SelectTrigger>
-              <SelectContent>
-                {plans.map((p) => (
-                  <SelectItem key={p.id} value={p.id}>
-                    {p.name} · {p.quota_gib} GiB · {ruleLabel(p)}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <Field label="生成数量">
-            <Input name="count" required type="number" min={1} max={100} defaultValue={1} />
-          </Field>
-          <Field label="兑换期限（天，0 为不限）">
-            <Input name="valid_days" required type="number" min={0} max={365000} defaultValue={90} />
-          </Field>
-          <NoteField />
-        </div>
-        <Button type="submit" disabled={busy || !p}>
-          {busy ? '正在生成…' : '生成卡密'}
-          <Ticket />
-        </Button>
-      </form>
-    </section>
-  );
-}
-
-function CustomIssuer({
+/** One panel-style form; a saved plan only pre-fills it and every field stays editable. */
+function Issuer({
+  plans,
   packageBilling,
   onIssued,
 }: {
+  plans: Plan[];
   packageBilling: boolean;
   onIssued: (cards: Issued[]) => void;
 }) {
+  const first = plans[0];
+  const fromPlan = (p: Plan): Terms => ({
+    quota_gib: p.quota_gib,
+    days: p.days,
+    permanent: p.permanent,
+    reset_period: p.reset_period,
+    reset_interval: p.reset_interval,
+  });
   const [kind, setKind] = useState('base');
-  const [cycle, setCycle] = useState<CycleRule>({ permanent: 0, reset_period: 'never', reset_interval: 30 });
+  const [label, setLabel] = useState(first?.name || '标准月卡');
+  const [terms, setTerms] = useState<Terms>(first ? fromPlan(first) : defaultTerms);
+  const [count, setCount] = useState(1);
+  const [validDays, setValidDays] = useState(0);
   const [busy, setBusy] = useState(false);
+  const addon = kind === 'addon';
   return (
-    <details className="surface custom-issue">
-      <summary>自定义额度发卡</summary>
+    <section className="plan-issuer">
+      <h2>发卡</h2>
+      <div className="term-presets" aria-label="快速填入">
+          <span className="small muted">快速填入</span>
+          {plans.map((p) => (
+            <button
+              key={p.id}
+              type="button"
+              onClick={() => {
+                setKind('base');
+                setLabel(p.name);
+                setTerms(fromPlan(p));
+              }}
+            >
+              {p.name}
+            </button>
+          ))}
+          <button
+            type="button"
+            onClick={() => {
+              setKind('base');
+              setLabel('不限时流量包');
+              setTerms({ ...terms, days: 0, permanent: 1, reset_period: 'never' });
+            }}
+          >
+            不限时流量包
+          </button>
+        </div>
       <form
         onSubmit={(e) => {
           e.preventDefault();
           const f = new FormData(e.currentTarget);
           setBusy(true);
           void issue({
-            label: f.get('label'),
+            label,
             kind,
-            quota_gib: Number(f.get('quota_gib')),
-            days: Number(f.get('days') || 1),
-            count: Number(f.get('count')),
-            valid_days: Number(f.get('valid_days')),
-            permanent: kind === 'base' && f.get('permanent') === '1',
-            reset_period: kind === 'base' ? f.get('reset_period') || 'never' : 'never',
-            reset_interval: Number(f.get('reset_interval') || 30),
+            ...termsBody(terms),
+            count,
+            valid_days: validDays,
             note: f.get('note'),
           })
             .then(onIssued)
@@ -177,44 +157,36 @@ function CustomIssuer({
       >
         <div className="form-grid">
           {packageBilling && (
-            <Field label="卡密类型">
-              <Select value={kind} onValueChange={(v) => setKind(v || 'base')}>
-                <SelectTrigger>
-                  <SelectValue>{kind === 'addon' ? '加流量卡（不增加天数）' : '独立套餐卡'}</SelectValue>
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="base">独立套餐卡</SelectItem>
-                  <SelectItem value="addon">加流量卡（不增加天数）</SelectItem>
-                </SelectContent>
-              </Select>
+            <Field label="类型">
+              <select value={kind} onChange={(e) => setKind(e.target.value)}>
+                <option value="base">套餐卡</option>
+                <option value="addon">加流量卡（跟随现有套餐到期）</option>
+              </select>
             </Field>
           )}
-          <Field label="卡名称（用户可见）">
-            <Input name="label" defaultValue="标准月卡" required maxLength={60} />
+          <Field label="名称（用户可见）">
+            <Input value={label} onChange={(e) => setLabel(e.target.value)} required maxLength={60} />
           </Field>
-          <Field label="流量额度（GiB）">
-            <Input type="number" name="quota_gib" defaultValue={100} required min={1} max={8388607} />
+          <TermsFields value={terms} quotaOnly={addon} onChange={(patch) => setTerms({ ...terms, ...patch })} />
+          <Field label="数量">
+            <Input type="number" value={count} onChange={(e) => setCount(Number(e.target.value))} required min={1} max={1000} />
           </Field>
-          {kind === 'base' && <CycleFields value={cycle} onChange={setCycle} />}
-          {kind === 'base' && !cycle.permanent && (
-            <Field label="套餐天数">
-              <Input type="number" name="days" defaultValue={30} required min={1} max={365000} />
-            </Field>
-          )}
-          <Field label="生成数量">
-            <Input type="number" name="count" defaultValue={1} required min={1} max={100} />
-          </Field>
-          <Field label="兑换期限（天，0 为不限）">
-            <Input type="number" name="valid_days" defaultValue={90} required min={0} max={365000} />
+          <Field label="兑换期限（天，0 = 不限）">
+            <Input type="number" value={validDays} onChange={(e) => setValidDays(Number(e.target.value))} required min={0} max={365000} />
           </Field>
           <NoteField />
         </div>
+        <p className="grant-summary">
+          <strong>
+            {count} 张 · {label || '—'} · {terms.quota_gib} GiB · {addon ? '跟随现有套餐到期' : ruleLabel(termsBody(terms))}
+          </strong>
+        </p>
         <Button type="submit" disabled={busy}>
-          {busy ? '处理中…' : '生成卡密'}
+          {busy ? '正在生成…' : '生成卡密'}
           <Ticket />
         </Button>
       </form>
-    </details>
+    </section>
   );
 }
 
@@ -292,9 +264,7 @@ function IssuedCodes({
       <aside className="issued issued-empty">
         <Ticket size={22} aria-hidden="true" />
         <p>生成后，卡密会显示在这里。</p>
-        <p className="small muted">
-          完整卡密只显示一次。建议逐张填写「发给谁」，之后在「卡密查询」里就能看到每张卡发给了谁、被哪个账号兑换。
-        </p>
+        <p className="small muted">完整卡密只显示一次。</p>
       </aside>
     );
   const link = (c: Issued) => cardLink(c.code, location.origin);
@@ -753,7 +723,7 @@ export function CardsWorkspace({
       <header className="page-heading">
         <div>
           <h1>卡密</h1>
-          <p className="muted">生成卡密后私下发给用户，不接入在线支付。</p>
+          
         </div>
       </header>
       <AdminTabs
@@ -771,12 +741,7 @@ export function CardsWorkspace({
       {tab === 'issue' && (
         <div className="issue-layout">
           <div>
-            {plans.length ? (
-              <PlanIssuer plans={plans} onIssued={received} />
-            ) : (
-              <p className="message">还没有上架套餐。可在「公告与套餐」中添加，或使用下方自定义发卡。</p>
-            )}
-            <CustomIssuer packageBilling={packageBilling} onIssued={received} />
+            <Issuer plans={plans} packageBilling={packageBilling} onIssued={received} />
           </div>
           <IssuedCodes cards={cards} onChange={setCards} onClear={() => setCards([])} />
         </div>

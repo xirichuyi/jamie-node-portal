@@ -170,7 +170,6 @@ export function LogsWorkspace() {
       <header className="page-heading">
         <div>
           <h1>日志</h1>
-          <p className="muted">管理操作与邮件发送记录，便于排查和追溯。</p>
         </div>
       </header>
       <AdminTabs

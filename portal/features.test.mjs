@@ -122,8 +122,10 @@ test('permanent recurring plans show renewal without a fake expiry date', async 
   const html = renderToStaticMarkup(React.createElement(authentication.ActivationSummary, {plan:{...rule,label:'Monthly',quota:100*1024**3}}));
   assert.match(html, /永久有效/);
   assert.match(html, /按开通日每月重置/);
-  const fields = renderToStaticMarkup(React.createElement(cycles.CycleFields, {value:rule}));
-  assert.match(fields, /按开通日每月重置/);
+  const fields = renderToStaticMarkup(React.createElement(cycles.TermsFields, {value:{...rule,quota_gib:100}, onChange(){}}));
+  assert.match(fields, /0 = 永久/);
+  assert.match(fields, /每月（按开通日）/);
+  assert.deepEqual(cycles.termsBody({quota_gib:0.5,days:0}), {quota_gib:0.5,days:0,permanent:true,reset_period:'never',reset_interval:30});
   assert.doesNotMatch(fields, /每月几日|固定日期/);
   const balances = renderToStaticMarkup(React.createElement(features.PackageBalances, {packages:[{...rule,id:'cycle',label:'Monthly',kind:'base',granted:100,spent:100,remaining:0,expires:cycles.FOREVER,next_reset:2000000000,status:'exhausted'}]}));
   assert.match(balances, /下次重置/);

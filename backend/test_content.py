@@ -27,6 +27,14 @@ class ContentTests(unittest.TestCase):
         with self.assertRaises(DomainError):
             self.content.save('admin', 'plan', p)
 
+    def test_zero_day_plan_is_an_unlimited_traffic_pack(self):
+        self.ledger.package_billing = True
+        plan = self.content.read(True)['plans'][0]
+        plan.update(name='不限时流量包', days=0, quota_gib=0.5, permanent=False, published=True)
+        self.content.save('admin', 'plan', plan)
+        saved = self.content.plan_for_card(plan['id'])
+        self.assertEqual((saved['permanent'], saved['quota_gib']), (1, 0.5))
+
     def test_publish_hide_and_card_entitlement_snapshot(self):
         plan = self.content.read(True)['plans'][0]
         with self.assertRaises(DomainError):
