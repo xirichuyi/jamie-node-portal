@@ -64,13 +64,31 @@ export function Tickets({
   staff?: boolean;
   draft?: TicketDraft;
 }) {
+  const [filter, setFilter] = useState('waiting'),
+    [page, setPage] = useState(1),
+    [search, setSearch] = useState(''),
+    [keyword, setKeyword] = useState('');
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setKeyword(search.trim());
+      setPage(1);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [search]);
+  // Staff filter, search and paging run on the server so old waiting tickets never drop off.
   const path = staff ? 'admin/tickets' : 'tickets',
-    { data, reload, placeholder } = useData<{ tickets: Ticket[] }>(
-      path,
+    { data, reload, placeholder } = useData<{
+      tickets: Ticket[];
+      counts?: Record<string, number>;
+      page?: number;
+      pages?: number;
+    }>(
+      staff
+        ? path + '?' + new URLSearchParams({ status: filter, q: keyword, page: String(page) })
+        : path,
       30000,
     ),
     work = useWork();
-  const [filter, setFilter] = useState('waiting');
   const [selected, setSelected] = useState<{
       ticket: Ticket;
       messages: { id: number; staff: number; body: string; created: number }[];
@@ -162,21 +180,39 @@ export function Tickets({
               </Button>
             )}
           </div>
-          {staff && data && (
-            <div className="member-filters ticket-filters">
-              {(['waiting', 'replied', 'closed', 'all'] as const).map((key) => (
-                <button key={key} aria-pressed={filter === key} onClick={() => setFilter(key)}>
-                  {key === 'all' ? '全部' : key === 'waiting' ? '待回复' : ticketStatus[key]}{' '}
-                  {key === 'all' ? data.tickets.length : data.tickets.filter((t) => t.status === key).length}
-                </button>
-              ))}
-            </div>
+          {staff && (
+            <>
+              <Input
+                aria-label="搜索工单"
+                placeholder="搜索标题或用户名"
+                value={search}
+                maxLength={64}
+                onChange={(e) => setSearch(e.target.value)}
+              />
+              <div className="member-filters ticket-filters">
+                {(['waiting', 'replied', 'closed', 'all'] as const).map((key) => (
+                  <button
+                    key={key}
+                    aria-pressed={filter === key}
+                    onClick={() => {
+                      setFilter(key);
+                      setPage(1);
+                    }}
+                  >
+                    {key === 'all' ? '全部' : key === 'waiting' ? '待回复' : ticketStatus[key]}
+                    {data?.counts ? ' ' + (data.counts[key] || 0) : ''}
+                  </button>
+                ))}
+              </div>
+            </>
           )}
           {placeholder}
-          {data && !data.tickets.filter((t) => !staff || filter === 'all' || t.status === filter).length && (
-            <p className="empty">{staff && filter === 'waiting' ? '没有待回复的工单，处理完了。' : '暂时没有工单。'}</p>
+          {data && !data.tickets.length && (
+            <p className="empty">
+              {staff && filter === 'waiting' && !keyword ? '没有待回复的工单，处理完了。' : '暂时没有工单。'}
+            </p>
           )}
-          {data?.tickets.filter((t) => !staff || filter === 'all' || t.status === filter).map((t) => (
+          {data?.tickets.map((t) => (
             <button
               key={t.id}
               className={
@@ -192,6 +228,19 @@ export function Tickets({
               <small>{when(t.updated)}</small>
             </button>
           ))}
+          {staff && !!data?.pages && data.pages > 1 && (
+            <div className="user-pagination">
+              <Button variant="ghost" disabled={page <= 1} onClick={() => setPage(page - 1)}>
+                上一页
+              </Button>
+              <span>
+                {data.page} / {data.pages}
+              </span>
+              <Button variant="ghost" disabled={page >= data.pages} onClick={() => setPage(page + 1)}>
+                下一页
+              </Button>
+            </div>
+          )}
         </section>
         <section className="section" id="ticket-detail">
           {(selected || creating) && (

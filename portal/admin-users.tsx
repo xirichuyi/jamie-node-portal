@@ -45,6 +45,7 @@ import { remainingTime } from './experience';
 export type ManagedUser = {
   id: string;
   username: string;
+  email: string | null;
   admin: number;
   disabled: number;
   deleting?: number;
@@ -198,6 +199,9 @@ export function UserManager({
     [message, setMessage] = useState(''),
     [secret, setSecret] = useState(''),
     [copied, setCopied] = useState(false);
+  const [picked, setPicked] = useState<Set<string>>(() => new Set()),
+    [bulk, setBulk] = useState<'' | 'sync' | 'disable' | 'enable' | 'grant'>(''),
+    [bulkPlan, setBulkPlan] = useState('');
   const sequence = useRef(0),
     detailSequence = useRef(0),
     activeUser = useRef(selected),
@@ -226,6 +230,7 @@ export function UserManager({
   }, [q, scope, page, sort]);
   useEffect(() => {
     setData(null);
+    setPicked(new Set());
     const timer = setTimeout(() => void load(), 250);
     return () => {
       clearTimeout(timer);
@@ -350,6 +355,50 @@ export function UserManager({
       setBusy(false);
     }
   };
+  const basePlans = plans.filter((p) => p.published);
+  const runBulk = async () => {
+    if (!bulk || actionLock.current) return;
+    actionLock.current = true;
+    setBusy(true);
+    try {
+      const result = await api<{
+        ok: number;
+        results: { id: string; ok: boolean; error?: string }[];
+      }>('admin/users-bulk', {
+        action: bulk,
+        ids: [...picked],
+        ...(bulk === 'grant' ? { plan_id: bulkPlan } : {}),
+      });
+      const failed = result.results.filter((r) => !r.ok);
+      const names = new Map(data?.members.map((u) => [u.id, u.username]));
+      notify(
+        failed.length
+          ? `成功 ${result.ok} 位，失败 ${failed.length} 位：` +
+              failed
+                .slice(0, 3)
+                .map((r) => `${names.get(r.id) || r.id}（${r.error}）`)
+                .join('；')
+          : `已处理 ${result.ok} 位用户`,
+        failed.length ? 'error' : undefined,
+      );
+      setBulk('');
+      setPicked(new Set());
+      await load();
+    } catch (e) {
+      notify((e as Error).message, 'error');
+    } finally {
+      actionLock.current = false;
+      setBusy(false);
+    }
+  };
+  const selectable = data?.members.filter((u) => !u.admin) || [];
+  const togglePick = (id: string) =>
+    setPicked((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
   const exportCSV = async () => {
     try {
       const result = await api<{ members: ManagedUser[] }>(
@@ -364,6 +413,7 @@ export function UserManager({
       );
       const header = [
         '用户名',
+        '邮箱',
         '套餐',
         '状态',
         '剩余流量(GiB)',
@@ -374,6 +424,7 @@ export function UserManager({
       ];
       const rows = result.members.map((u) => [
         u.username,
+        u.email || '',
         u.plan_name || '',
         u.disabled ? '账号停用' : userStates[u.primary_state] || '',
         u.remaining === null ? '' : (u.remaining / 1024 ** 3).toFixed(2),
@@ -443,13 +494,13 @@ export function UserManager({
         </Select>
         <Input
           aria-label="搜索全部用户"
-          placeholder="搜索用户名或邮箱"
+          placeholder="用户名、邮箱、套餐或备注"
           value={q}
           onChange={(e) => {
             setQ(e.target.value);
             setPage(1);
           }}
-          maxLength={32}
+          maxLength={64}
         />
         <p className="small muted">
           {data
@@ -493,9 +544,44 @@ export function UserManager({
         </p>
       )}
       {loading && !data && <p role="status">正在读取用户…</p>}
+      {picked.size > 0 && (
+        <section className="bulk-bar" aria-label="批量操作">
+          <strong>已选 {picked.size} 位</strong>
+          <Button variant="outline" size="sm" disabled={busy} onClick={() => setBulk('sync')}>
+            重试同步
+          </Button>
+          {packageBilling && !!basePlans.length && (
+            <Button variant="outline" size="sm" disabled={busy} onClick={() => setBulk('grant')}>
+              赠送套餐
+            </Button>
+          )}
+          <Button variant="outline" size="sm" disabled={busy} onClick={() => setBulk('disable')}>
+            停用
+          </Button>
+          <Button variant="outline" size="sm" disabled={busy} onClick={() => setBulk('enable')}>
+            恢复
+          </Button>
+          <Button variant="ghost" size="sm" disabled={busy} onClick={() => setPicked(new Set())}>
+            取消选择
+          </Button>
+        </section>
+      )}
       <Table className="admin-table user-table">
         <TableHeader>
           <TableRow>
+            <TableHead className="pick-cell">
+              <input
+                type="checkbox"
+                aria-label="选择本页全部普通用户"
+                checked={!!selectable.length && selectable.every((u) => picked.has(u.id))}
+                disabled={!selectable.length}
+                onChange={(e) =>
+                  setPicked(
+                    e.target.checked ? new Set(selectable.map((u) => u.id)) : new Set(),
+                  )
+                }
+              />
+            </TableHead>
             {['用户', '套餐', '剩余 / 总流量', '最近到期', '状态', '活动'].map(
               (t) => (
                 <TableHead key={t}>{t}</TableHead>
@@ -510,6 +596,16 @@ export function UserManager({
               className="managed-user-row"
               onClick={() => open(u.id)}
             >
+              <TableCell className="pick-cell" onClick={(e) => e.stopPropagation()}>
+                {!u.admin && (
+                  <input
+                    type="checkbox"
+                    aria-label={`选择 ${u.username}`}
+                    checked={picked.has(u.id)}
+                    onChange={() => togglePick(u.id)}
+                  />
+                )}
+              </TableCell>
               <TableCell className="cell-title">
                 <button
                   className="text-link"
@@ -526,6 +622,9 @@ export function UserManager({
                   </span>
                 )}
                 {!!u.admin && <small className="sync-caption">管理员</small>}
+                {u.email && u.email !== u.username && (
+                  <small className="sync-caption">{u.email}</small>
+                )}
               </TableCell>
               <TableCell data-label="套餐">
                 {u.plan_name || <span className="muted">—</span>}
@@ -567,7 +666,7 @@ export function UserManager({
           ))}
           {data && !data.members.length && (
             <TableRow>
-              <TableCell colSpan={6}>
+              <TableCell colSpan={7}>
                 没有符合条件的用户。可以清空搜索或切换筛选。
               </TableCell>
             </TableRow>
@@ -598,6 +697,60 @@ export function UserManager({
           </Button>
         </div>
       )}
+      <Dialog
+        open={!!bulk}
+        onOpenChange={(value) => {
+          if (!value && !busy) setBulk('');
+        }}
+      >
+        <DialogContent>
+          <DialogTitle>
+            {bulk === 'grant'
+              ? `为 ${picked.size} 位用户赠送套餐`
+              : bulk === 'disable'
+                ? `停用 ${picked.size} 位用户`
+                : bulk === 'enable'
+                  ? `恢复 ${picked.size} 位用户`
+                  : `为 ${picked.size} 位用户重试同步`}
+          </DialogTitle>
+          <DialogDescription>
+            {bulk === 'grant'
+              ? '每位用户各生成一张内部卡并立即兑换，与单个赠送相同；停用或删除中的账号会跳过。流量包需在用户详情中逐个选择套餐。'
+              : bulk === 'disable'
+                ? '停用后用户网站登录立即退出，节点在同步后停止服务。'
+                : bulk === 'enable'
+                  ? '恢复登录，并在节点同步后恢复服务。'
+                  : '仅对仍在等待节点确认的账号生效。'}
+          </DialogDescription>
+          {bulk === 'grant' && (
+            <Select value={bulkPlan} onValueChange={(v) => setBulkPlan(v || '')}>
+              <SelectTrigger aria-label="选择套餐">
+                <SelectValue>
+                  {basePlans.find((p) => p.id === bulkPlan)?.name || '选择已上架的套餐'}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                {basePlans.map((p) => (
+                  <SelectItem key={p.id} value={p.id}>
+                    {p.name} · {p.quota_gib} GiB · {ruleLabel(p)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+          <div className="actions">
+            <Button variant="ghost" disabled={busy} onClick={() => setBulk('')}>
+              取消
+            </Button>
+            <Button
+              disabled={busy || (bulk === 'grant' && !bulkPlan)}
+              onClick={() => void runBulk()}
+            >
+              {busy ? '处理中…' : '确认'}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
       <Sheet
         open={!!selected}
         onOpenChange={(value) => {
@@ -609,7 +762,9 @@ export function UserManager({
             <div>
               <SheetTitle>{m?.username || '用户详情'}</SheetTitle>
               <SheetDescription>
-                {m ? `注册于 ${time(m.created)}` : '正在加载账号信息'}
+                {m
+                  ? `${m.email && m.email !== m.username ? m.email + ' · ' : ''}注册于 ${time(m.created)}`
+                  : '正在加载账号信息'}
               </SheetDescription>
             </div>
             <Button variant="ghost" disabled={busy} onClick={close}>

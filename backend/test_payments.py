@@ -121,11 +121,30 @@ class PaymentTests(unittest.TestCase):
             self.p.get(order['id'], access_key='b' * 32)
         result = self.p.get(order['id'], access_key=self.key)
         self.assertIn('code', result)
-        self.assertNotIn('code', self.p.listing(self.account, admin=True)['items'][0])
+        self.assertNotIn('code', self.p.admin_listing({})['items'][0])
         token = self.app.register_with_card('buyer', 'Password-test-123', result['code'])
         buyer = self.app.session(token)
         self.assertTrue(self.app.ledger.redeem(buyer['id'], result['code'])['already_redeemed'])
         self.assertEqual(result['code'], self.p.get(order['id'], access_key=self.key)['code'])
+
+    def test_admin_listing_filters_searches_and_checks_now(self):
+        order = self.create()
+        listing = self.p.admin_listing({})
+        self.assertEqual(listing['counts']['pending'], 1)
+        self.assertEqual(listing['items'][0]['username'], 'alice')
+        self.assertEqual(self.p.admin_listing({'status': ['fulfilled']})['total'], 0)
+        self.assertEqual(self.p.admin_listing({'q': ['ALICE']})['total'], 1)
+        self.assertEqual(self.p.admin_listing({'q': [order['id']]})['total'], 1)
+        self.assertEqual(self.p.admin_listing({'q': ['nobody']})['total'], 0)
+        with self.assertRaises(DomainError):
+            self.p.admin_listing({'status': ['bogus']})
+        self.p.gateway.get.return_value = self.remote(order, 'completed')
+        self.assertEqual(self.p.admin_check('admin', order['id'])['status'], 'fulfilled')
+        self.assertEqual(self.p.admin_listing({'q': ['0xTEST']})['items'][0]['status'], 'fulfilled')
+        with self.assertRaises(DomainError):
+            self.p.admin_check('admin', order['id'])
+        summary = self.p.summary()
+        self.assertEqual((summary['today'], summary['today_count'], summary['attention']), ('1', 1, 0))
 
     def test_order_ownership_and_admin_authorization(self):
         order = self.create()

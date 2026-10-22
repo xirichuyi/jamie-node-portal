@@ -10,12 +10,13 @@ def ticket_request(ctx, staff=False):
         ctx.app.limit('ticket:' + ctx.account['id'], 60 if staff else 20, 3600)
         result = ctx.app.features.ticket_write(ctx.account, ctx.data, staff)
     else:
-        tid = parse_qs(urlsplit(ctx.raw_path).query).get('id', [''])[0]
+        query = parse_qs(urlsplit(ctx.raw_path).query)
+        tid = query.get('id', [''])[0]
         features = ctx.app.features
         result = (
             features.ticket(ctx.account, tid, staff)
             if tid
-            else features.tickets(ctx.account, staff)
+            else features.tickets(ctx.account, staff, query)
         )
     return ctx.reply(200, result)
 

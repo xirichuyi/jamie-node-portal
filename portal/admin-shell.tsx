@@ -8,22 +8,23 @@ import {
   ScrollText,
   ArrowLeft,
   Search,
+  Wallet,
 } from 'lucide-react';
 import { api } from './api';
 
-type Badges = { tickets: number; sync_errors: number; pending: number };
+type Badges = { tickets: number; sync_errors: number; pending: number; orders: number };
 export { adminViews } from './navigation';
 const items = [
   { id: 'operations', label: '概览', Icon: LayoutDashboard },
   { id: 'admin_users', label: '用户', Icon: Users },
   { id: 'admin', label: '卡密', Icon: Ticket },
-  { id: 'admin_orders', label: '支付订单', Icon: Ticket },
+  { id: 'admin_orders', label: '支付订单', Icon: Wallet },
   { id: 'admin_tickets', label: '工单', Icon: LifeBuoy },
   { id: 'admin_content', label: '公告与套餐', Icon: Megaphone },
   { id: 'admin_logs', label: '日志', Icon: ScrollText },
 ];
 export function openUserSearch(q: string) {
-  history.pushState(history.state, '', '#/admin_users?q=' + encodeURIComponent(q));
+  history.pushState(history.state, '', '#/admin_users?q=' + encodeURIComponent(q.slice(0, 64)));
   window.dispatchEvent(new Event('hashchange'));
 }
 // Card codes, tails and redemption links go to the card ledger; anything else is a user search.
@@ -61,12 +62,15 @@ export function AdminShell({
       document.removeEventListener('visibilitychange', load);
     };
   }, [view]);
+  // Users: sync errors plus syncs still pending after five minutes (server-side cut-off).
   const badge = (id: string) =>
     id === 'admin_tickets'
       ? badges?.tickets
       : id === 'admin_users'
         ? (badges?.sync_errors || 0) + (badges?.pending || 0)
-        : 0;
+        : id === 'admin_orders'
+          ? badges?.orders
+          : 0;
   return (
     <div className="admin-shell">
       <aside className="admin-sidebar" aria-label="管理工作台">
@@ -86,7 +90,7 @@ export function AdminShell({
             aria-label="快速查找用户或卡密"
             placeholder="查找用户或卡密…"
             value={q}
-            maxLength={32}
+            maxLength={300}
             onChange={(e) => setQ(e.target.value)}
           />
         </form>
@@ -103,7 +107,11 @@ export function AdminShell({
                 <span>{label}</span>
                 {!!count && (
                   <em
-                    className={id === 'admin_users' && badges?.sync_errors ? 'alert' : ''}
+                    className={
+                      (id === 'admin_users' && badges?.sync_errors) || id === 'admin_orders'
+                        ? 'alert'
+                        : ''
+                    }
                     aria-label={`${count} 项待处理`}
                   >
                     {count > 99 ? '99+' : count}

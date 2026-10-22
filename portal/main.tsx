@@ -21,6 +21,9 @@ import { Toaster, notify } from './toast';
 const CardsWorkspace = React.lazy(() =>
   import('./admin-cards').then((module) => ({ default: module.CardsWorkspace })),
 );
+const AdminOrders = React.lazy(() =>
+  import('./admin-orders').then((module) => ({ default: module.AdminOrders })),
+);
 const LogsWorkspace = React.lazy(() =>
   import('./admin-logs').then((module) => ({ default: module.LogsWorkspace })),
 );
@@ -476,7 +479,7 @@ function App() {
                     <CardsWorkspace plans={content?.plans || []} packageBilling={!!content?.package_billing} />
                   )}
                   {view === 'admin_logs' && <LogsWorkspace />}
-                  {view === 'admin_orders' && <OrdersPage signedIn admin />}
+                  {view === 'admin_orders' && <AdminOrders />}
                 </React.Suspense>
               </AdminShell>
             )}

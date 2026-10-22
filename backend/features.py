@@ -170,7 +170,9 @@ class Features:
             db.execute('DELETE FROM sessions WHERE account_id=?', (row['id'],))
             self.ledger.audit(db, row['id'], 'account.recover', row['id'])
 
-    def tickets(self, account, staff=False):
+    def tickets(self, account, staff=False, query=None):
+        if staff:
+            return self.staff_tickets(query or {})
         with self.ledger.connect() as db:
             rows = [
                 dict(r)
@@ -179,13 +181,56 @@ class Features:
                     (SELECT COUNT(*) FROM ticket_messages m WHERE m.ticket_id=t.id AND m.staff=1
                     AND m.id>COALESCE((SELECT r.message_id FROM ticket_reads r WHERE r.account_id=t.account_id AND r.ticket_id=t.id),0)) AS unread
                     FROM support_tickets t
-                JOIN accounts a ON a.id=t.account_id """
-                    + ('' if staff else 'WHERE t.account_id=? ')
-                    + 'ORDER BY t.updated DESC LIMIT 100',
-                    () if staff else (account['id'],),
+                JOIN accounts a ON a.id=t.account_id WHERE t.account_id=?
+                ORDER BY t.updated DESC LIMIT 100""",
+                    (account['id'],),
                 )
             ]
         return {'tickets': rows}
+
+    def staff_tickets(self, query):
+        """Status filter, search and paging run here so old waiting tickets never fall off."""
+        status = query.get('status', ['waiting'])[0]
+        keyword = query.get('q', [''])[0].strip()
+        try:
+            page = max(1, min(100000, int(query.get('page', ['1'])[0])))
+        except ValueError:
+            raise DomainError('页码不正确') from None
+        if status not in ('waiting', 'replied', 'closed', 'all') or len(keyword) > 64:
+            raise DomainError('筛选条件不正确')
+        where, args = [], []
+        if keyword:
+            like = '%' + keyword.lower().replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_') + '%'
+            where.append("(lower(t.subject) LIKE ? ESCAPE '\\' OR a.username LIKE ? ESCAPE '\\')")
+            args.extend([like, like])
+        base = ' FROM support_tickets t JOIN accounts a ON a.id=t.account_id'
+        with self.ledger.connect() as db:
+            counts = {'all': 0, 'waiting': 0, 'replied': 0, 'closed': 0}
+            for row in db.execute(
+                'SELECT t.status,COUNT(*)' + base + (' WHERE ' + ' AND '.join(where) if where else '')
+                + ' GROUP BY t.status',
+                args,
+            ):
+                counts[row[0]] = row[1]
+                counts['all'] += row[1]
+            if status != 'all':
+                where.append('t.status=?')
+                args.append(status)
+            clause = (' WHERE ' + ' AND '.join(where)) if where else ''
+            total = counts[status]
+            pages = max(1, (total + 29) // 30)
+            page = min(page, pages)
+            rows = [
+                dict(r)
+                for r in db.execute(
+                    'SELECT t.*,a.username,0 AS unread' + base + clause
+                    # Waiting tickets: longest-waiting first, so nothing is starved.
+                    + (' ORDER BY t.updated ASC' if status == 'waiting' else ' ORDER BY t.updated DESC')
+                    + ',t.id LIMIT 30 OFFSET ?',
+                    (*args, (page - 1) * 30),
+                )
+            ]
+        return {'tickets': rows, 'counts': counts, 'total': total, 'page': page, 'pages': pages}
 
     def ticket_read(self, account, tid, mid):
         if type(mid) is not int:
@@ -526,7 +571,7 @@ class Features:
         return {'id': iid}
 
     @staticmethod
-    def batches(db, now, limit=30):
+    def batches(db, now, limit=30, issued_only=False):
         return [
             dict(r)
             for r in db.execute(
@@ -537,7 +582,9 @@ class Features:
             SUM(redeemed_at IS NULL AND revoked_at IS NULL AND redeem_before<=?) AS expired,
             MIN(kind) AS kind,MIN(quota) AS quota,
             SUM(granted) AS granted
-            FROM cards GROUP BY created,label ORDER BY created DESC LIMIT ?""",
+            FROM cards GROUP BY created,label"""
+                + (' HAVING SUM(granted)<COUNT(*)' if issued_only else '')
+                + ' ORDER BY created DESC LIMIT ?',
                 (now, now, limit),
             )
         ]
@@ -557,14 +604,14 @@ class Features:
             counts['waiting_tickets'] = db.execute(
                 "SELECT COUNT(*) FROM support_tickets WHERE status='waiting'"
             ).fetchone()[0]
-            batches = self.batches(db, now)
+            batches = self.batches(db, now, 5, issued_only=True)
             cache = db.execute(
                 "SELECT value,updated FROM feature_cache WHERE key='budgets'"
             ).fetchone()
         backups = Path(self.ledger.path).parent / 'backups'
         files = list(backups.glob('*.db')) if backups.exists() else []
         backup_at = int(max(p.stat().st_mtime for p in files)) if files else None
-        user_counts = self.app.users.listing({})['counts']
+        user_counts = self.app.users.listing({}, live=False)['counts']
         counts.update(
             {key: user_counts[key] for key in ('active', 'expiring', 'pending', 'sync_errors')}
         )
@@ -577,6 +624,7 @@ class Features:
             'backup_at': backup_at,
             'status': self.service_status(30, 50),
             'trend': self.app.users.trend(),
+            'payments': self.app.payments.summary(),
             'mail': {
                 'enabled': self.app.email_auth.enabled,
                 'staff_alerts': self.app.staff_notifications.settings()['ticket_email'],

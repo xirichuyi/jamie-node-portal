@@ -109,7 +109,7 @@ class AdminToolTests(unittest.TestCase):
 
     def test_badges_trend_and_export(self):
         badges = self.app.users.badges()
-        self.assertEqual(set(badges), {'tickets', 'sync_errors', 'pending'})
+        self.assertEqual(set(badges), {'tickets', 'sync_errors', 'pending', 'orders'})
         trend = self.app.users.trend()
         self.assertEqual(len(trend), 14)
         self.assertEqual(trend[-1]['registered'], 2)
@@ -119,6 +119,87 @@ class AdminToolTests(unittest.TestCase):
         encoded = json.dumps(exported)
         for secret in ['panel_email', 'panel_auth', 'sub_id', 'password', 'digest']:
             self.assertNotIn(secret, encoded)
+
+    def test_search_covers_email_note_and_plan_but_hides_note_body(self):
+        with self.app.ledger.transaction() as db:
+            db.execute(
+                'INSERT INTO verified_emails VALUES(?,?,?)', (self.uid, 'alice.w@mail.test', 1)
+            )
+        self.app.users.save_note(self.admin, self.uid, '老客户 VIP')
+        self.app.ledger.grant(self.admin, self.uid, self.spec(label='季卡'))
+        for keyword in ('MAIL.TEST', 'vip', '季卡'):
+            result = self.app.users.listing({'q': [keyword]})
+            self.assertEqual([m['id'] for m in result['members']], [self.uid], keyword)
+            self.assertNotIn('note_body', result['members'][0])
+        self.assertEqual(self.app.users.listing({'q': ['x' * 64]})['total'], 0)
+        self.assertNotIn('note_body', self.app.users.detail(self.uid)['member'])
+        self.assertEqual(self.app.users.detail(self.uid)['member']['email'], 'alice.w@mail.test')
+
+    def test_listing_cache_is_dropped_by_admin_writes(self):
+        self.assertEqual(self.app.users.listing({})['counts']['disabled'], 0)
+        self.app.users.set_disabled(self.admin, self.uid, True)
+        self.app.users.invalidate()
+        self.assertEqual(self.app.users.listing({})['counts']['disabled'], 1)
+
+    def test_overview_counts_do_not_call_the_panel(self):
+        self.panel.request.reset_mock()
+        self.app.users.sample = None
+        self.app.users.invalidate()
+        self.app.features.operations()
+        self.panel.request.assert_not_called()
+
+    def test_pending_badge_ignores_fresh_sync_and_counts_stale(self):
+        with self.app.ledger.transaction() as db:
+            db.execute('UPDATE members SET revision=synced_revision+1 WHERE id=?', (self.uid,))
+        self.assertEqual(self.app.users.badges()['pending'], 0)
+        self.app.users.pending_since[self.uid] -= 301
+        self.assertEqual(self.app.users.badges()['pending'], 1)
+        with self.app.ledger.transaction() as db:
+            db.execute('UPDATE members SET synced_revision=revision WHERE id=?', (self.uid,))
+        self.assertEqual(self.app.users.badges()['pending'], 0)
+        self.assertEqual(self.app.users.pending_since, {})
+
+    def test_bulk_actions_report_each_user(self):
+        bob = self.app.register('bob', 'User-password-12345')
+        result = self.app.users.bulk(
+            self.admin, {'action': 'disable', 'ids': [self.uid, bob, self.admin, 'nobody']}
+        )
+        self.assertEqual(result['ok'], 2)
+        self.assertEqual([r['ok'] for r in result['results']], [True, True, False, False])
+        self.assertEqual(self.app.users.listing({})['counts']['disabled'], 2)
+        self.app.users.bulk(self.admin, {'action': 'enable', 'ids': [self.uid, bob]})
+        granted = self.app.users.bulk(
+            self.admin, {'action': 'grant', 'ids': [self.uid, bob], 'spec': self.spec()}
+        )
+        self.assertEqual(granted['ok'], 2)
+        self.assertEqual(self.app.users.detail(bob)['member']['quota'], 10 * GIB)
+        with self.assertRaises(DomainError):
+            self.app.users.bulk(
+                self.admin, {'action': 'grant', 'ids': [bob], 'spec': self.spec(kind='addon')}
+            )
+        for bad in ({'action': 'delete', 'ids': [bob]}, {'action': 'sync', 'ids': []},
+                    {'action': 'sync', 'ids': ['x'] * 101}):
+            with self.assertRaises(DomainError):
+                self.app.users.bulk(self.admin, bad)
+
+    def test_staff_tickets_filter_search_and_page_on_server(self):
+        with self.app.ledger.transaction() as db:
+            for i in range(35):
+                db.execute(
+                    'INSERT INTO support_tickets VALUES(?,?,?,?,?,?,?)',
+                    (f't{i}', self.uid, f'旧问题 {i}', 'other', 'waiting', i, i),
+                )
+        result = self.app.features.tickets(None, True, {})
+        self.assertEqual(result['counts']['waiting'], 35)
+        self.assertEqual((len(result['tickets']), result['pages']), (30, 2))
+        # Longest-waiting first: the oldest inserted tickets lead the queue.
+        self.assertEqual(result['tickets'][0]['id'], 't0')
+        self.assertEqual(len(self.app.features.tickets(None, True, {'page': ['2']})['tickets']), 5)
+        self.assertEqual(self.app.features.tickets(None, True, {'q': ['旧问题 1']})['total'], 11)
+        self.assertEqual(self.app.features.tickets(None, True, {'q': ['ALICE']})['total'], 35)
+        self.assertEqual(self.app.features.tickets(None, True, {'status': ['closed']})['total'], 0)
+        with self.assertRaises(DomainError):
+            self.app.features.tickets(None, True, {'status': ['bogus']})
 
     def test_card_notes_show_who_received_and_who_redeemed(self):
         codes = self.app.ledger.issue(self.admin, '月卡', 10, 30, 2, 30, note='发给 张三 (微信)')

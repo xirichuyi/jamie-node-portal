@@ -109,23 +109,104 @@ class Payments:
             raise HttpError(404, '订单不存在')
         return self.view(row, reveal=True)
 
-    def listing(self, account, page=1, admin=False):
+    def listing(self, account, page=1):
         try:
             page = max(1, min(100000, int(page)))
         except (ValueError, TypeError):
             raise DomainError('页码无效') from None
-        where, params = ('', ()) if admin else (' WHERE account_id=?', (account['id'],))
+        where, params = ' WHERE account_id=?', (account['id'],)
         with self.app.ledger.connect() as db:
             total = db.execute('SELECT count(*) FROM payment_orders' + where, params).fetchone()[0]
             rows = db.execute('SELECT * FROM payment_orders' + where + ' ORDER BY created DESC,id LIMIT 30 OFFSET ?',
                               (*params, (page - 1) * 30)).fetchall()
+        items = [self.view(dict(row)) for row in rows]
+        return {'items': items, 'total': total, 'page': page, 'pages': max(1, (total + 29) // 30), 'enabled': self.enabled}
+
+    ADMIN_STATUSES = ('creating', 'pending', 'confirming', 'paid', 'review', 'fulfilled', 'expired')
+
+    def admin_listing(self, query):
+        """Status filter and search by order id, gateway id, tx hash or username."""
+        status = query.get('status', ['all'])[0]
+        keyword = query.get('q', [''])[0].strip()
+        try:
+            page = max(1, min(100000, int(query.get('page', ['1'])[0])))
+        except ValueError:
+            raise DomainError('页码无效') from None
+        if (status != 'all' and status not in self.ADMIN_STATUSES) or len(keyword) > 100:
+            raise DomainError('筛选条件不正确')
+        where, args = [], []
+        if keyword:
+            where.append('(o.id=? OR o.gateway_id=? OR lower(o.tx_hash)=? OR a.username=?)')
+            args.extend([keyword, keyword, keyword.lower(), keyword.lower()])
+        base = ' FROM payment_orders o LEFT JOIN accounts a ON a.id=o.account_id'
+        with self.app.ledger.connect() as db:
+            counts = dict.fromkeys(('all', *self.ADMIN_STATUSES), 0)
+            for row in db.execute(
+                'SELECT o.status,count(*)' + base + (' WHERE ' + ' AND '.join(where) if where else '')
+                + ' GROUP BY o.status',
+                args,
+            ):
+                counts[row[0]] = row[1]
+                counts['all'] += row[1]
+            if status != 'all':
+                where.append('o.status=?')
+                args.append(status)
+            clause = (' WHERE ' + ' AND '.join(where)) if where else ''
+            total = counts[status]
+            pages = max(1, (total + 29) // 30)
+            page = min(page, pages)
+            rows = db.execute('SELECT o.*,a.username' + base + clause
+                              + ' ORDER BY o.created DESC,o.id LIMIT 30 OFFSET ?',
+                              (*args, (page - 1) * 30)).fetchall()
         items = []
         for row in rows:
             item = self.view(dict(row))
-            if admin:
-                item.update(account_id=row['account_id'], gateway_id=row['gateway_id'], card_id=row['card_id'])
+            item.update(account_id=row['account_id'], username=row['username'], gateway_id=row['gateway_id'],
+                        card_id=row['card_id'], checked=row['checked'], attempts=row['attempts'])
             items.append(item)
-        return {'items': items, 'total': total, 'page': page, 'pages': max(1, (total + 29) // 30), 'enabled': self.enabled}
+        return {'items': items, 'total': total, 'page': page, 'pages': pages, 'counts': counts,
+                'enabled': self.enabled}
+
+    def admin_check(self, actor, oid):
+        """Run the same authenticated lookup as the background collector, right now."""
+        if not self.enabled:
+            raise DomainError('在线支付尚未开放')
+        row = self.row(oid)
+        if row['status'] == 'fulfilled':
+            raise DomainError('订单已完成，无需查单')
+        self.sync(oid)
+        with self.app.ledger.transaction() as db:
+            self.app.ledger.audit(db, actor, 'payment.check', oid)
+        updated = self.row(oid)
+        return {'status': updated['status'], 'error': updated['error']}
+
+    def summary(self):
+        """Overview revenue at the original plan price; gateway tails are not income."""
+        now = int(time.time())
+        day = now - (now + 28800) % 86400  # Shanghai midnight
+        with self.app.ledger.connect() as db:
+            row = db.execute(
+                """SELECT COALESCE(SUM(CASE WHEN updated>=? THEN amount END),0) AS today,
+                COUNT(CASE WHEN updated>=? THEN 1 END) AS today_count,
+                COALESCE(SUM(CASE WHEN updated>=? THEN amount END),0) AS month,
+                COUNT(CASE WHEN updated>=? THEN 1 END) AS month_count,
+                COALESCE(SUM(amount),0) AS total, COUNT(*) AS total_count
+                FROM payment_orders WHERE status='fulfilled'""",
+                (day, day, now - 30 * 86400, now - 30 * 86400),
+            ).fetchone()
+            attention = db.execute(
+                "SELECT count(*) FROM payment_orders WHERE status IN ('paid','review')"
+            ).fetchone()[0]
+        return {
+            'enabled': self.enabled,
+            'today': amount_text(row['today']),
+            'today_count': row['today_count'],
+            'month': amount_text(row['month']),
+            'month_count': row['month_count'],
+            'total': amount_text(row['total']),
+            'total_count': row['total_count'],
+            'attention': attention,
+        }
 
     def validate(self, row, remote):
         if (remote.get('merchant_order_id') != row['id'] or micros(remote.get('base_amount')) != row['amount']

@@ -67,7 +67,7 @@ class ServerTests(unittest.TestCase):
         self.assertIn('HttpOnly', cookie)
         self.assertIn('Secure', cookie)
         self.assertIn('SameSite=Strict', cookie)
-        self.assertEqual(self.call('admin/overview', cookie=cookie)[0], 403)
+        self.assertEqual(self.call('admin/users', cookie=cookie)[0], 403)
         status, _, admin_cookie = self.call(
             'password',
             {'old_password': 'Admin-password-12345', 'new_password': 'New-admin-password-12345'},
@@ -113,8 +113,9 @@ class ServerTests(unittest.TestCase):
             },
         )
         self.assertEqual(status, 200)
-        self.assertEqual(self.call('admin/overview', cookie=user_cookie)[0], 403)
-        for endpoint in ('admin/users', 'admin/user?id=missing', 'admin/cards-overview'):
+        self.assertEqual(self.call('admin/users', cookie=user_cookie)[0], 403)
+        self.assertEqual(self.call('admin/overview', cookie=admin_cookie)[0], 404)
+        for endpoint in ('admin/users', 'admin/user?id=missing', 'admin/orders'):
             self.assertEqual(self.call(endpoint)[0], 401)
             self.assertEqual(self.call(endpoint, cookie=user_cookie)[0], 403)
         for endpoint in ('admin/user-sessions', 'admin/user-sync'):
@@ -179,7 +180,7 @@ class ServerTests(unittest.TestCase):
         self.assertEqual(me['subscription']['used'], 12345)
         self.assertTrue(me['subscription']['url'].startswith('https://sub.chuyi.uk/sub/'))
         self.assertNotIn('panel_auth', json.dumps(me))
-        overview = self.call('admin/overview', cookie=admin_cookie)[1]
+        overview = self.call('admin/users', cookie=admin_cookie)[1]
         self.assertNotIn(code, json.dumps(overview))
         uid = next(m['id'] for m in overview['members'] if m['username'] == 'alice@example.com')
         detail = self.call('admin/user?id=' + uid, cookie=admin_cookie)

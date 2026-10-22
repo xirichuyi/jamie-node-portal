@@ -47,6 +47,16 @@ type Ops = {
   status: Status;
   trend?: { date: string; registered: number; redeemed: number }[];
   mail?: { enabled: boolean; staff_alerts: boolean };
+  payments?: {
+    enabled: boolean;
+    today: string;
+    today_count: number;
+    month: string;
+    month_count: number;
+    total: string;
+    total_count: number;
+    attention: number;
+  };
 };
 function TrendBars({
   title,
@@ -149,6 +159,39 @@ export function Operations({
               </button>
             ))}
           </div>
+          {data.payments && (data.payments.enabled || data.payments.total_count > 0) && (
+            <section className="section">
+              <div className="section-heading">
+                <h2>USDT 收入</h2>
+                <button className="text-link" onClick={() => navigate('admin_orders')}>
+                  支付订单 →
+                </button>
+              </div>
+              <div className="revenue-strip">
+                <div>
+                  <span>今日（北京时间）</span>
+                  <strong>{data.payments.today}</strong>
+                  <small className="muted"> USDT · {data.payments.today_count} 单</small>
+                </div>
+                <div>
+                  <span>近 30 天</span>
+                  <strong>{data.payments.month}</strong>
+                  <small className="muted"> USDT · {data.payments.month_count} 单</small>
+                </div>
+                <div>
+                  <span>累计</span>
+                  <strong>{data.payments.total}</strong>
+                  <small className="muted"> USDT · {data.payments.total_count} 单</small>
+                </div>
+              </div>
+              {!!data.payments.attention && (
+                <p className="message error">
+                  {data.payments.attention} 笔订单已付款待到账或需人工核对。
+                </p>
+              )}
+              <p className="small muted">按已完成订单的套餐原价统计，不含网关识别尾数。</p>
+            </section>
+          )}
           {!!data.trend?.length && (
             <div className="trend-grid">
               <TrendBars title="新注册" rows={data.trend} field="registered" />
@@ -315,7 +358,7 @@ export function Operations({
                   <tr><th>批次</th><th>总数</th><th>可用</th><th>已兑换</th><th>已作废</th><th>已过期</th></tr>
                 </thead>
                 <tbody>
-                  {data.batches.slice(0, 5).map((b, i) => (
+                  {data.batches.map((b, i) => (
                     <tr key={i}>
                       <td>{b.label}<small className="block muted">{when(b.created)}</small></td>
                       <td data-label="总数">{b.total}</td><td data-label="可用">{b.available}</td><td data-label="已兑换">{b.redeemed}</td><td data-label="已作废">{b.revoked}</td><td data-label="已过期">{b.expired}</td>

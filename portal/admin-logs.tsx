@@ -40,6 +40,8 @@ export const auditLabels: Record<string, string> = {
   'ticket.close': '关闭工单',
   'staff.alerts': '修改工单邮件提醒',
   'mail.test': '发送测试邮件',
+  'payment.fulfilled': '支付到账',
+  'payment.check': '手动查单',
 };
 const filters: [string, string][] = [
   ['', '全部操作'],

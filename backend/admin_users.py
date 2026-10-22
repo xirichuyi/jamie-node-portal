@@ -40,11 +40,20 @@ def subscription_state(member, now):
     return 'active'
 
 
+# Bulk actions accepted by bulk(); grants are limited to base packages because
+# a traffic add-on needs a per-user target package.
+BULK_ACTIONS = ('sync', 'disable', 'enable', 'grant')
+PENDING_BADGE_AFTER = 300
+
+
 class UserWorkspace:
     def __init__(self, app):
         self.app = app
         self.lock = threading.Lock()
         self.sample = None
+        # Short-lived listing rows; paging, sorting and filter clicks reuse one read.
+        self.cache = None
+        self.pending_since = {}
         with self.app.ledger.connect() as db:
             db.execute("""CREATE TABLE IF NOT EXISTS user_traffic_activity (
                 member_id TEXT PRIMARY KEY REFERENCES members(id),
@@ -54,11 +63,17 @@ class UserWorkspace:
                 member_id TEXT PRIMARY KEY REFERENCES members(id),
                 body TEXT NOT NULL, updated INTEGER NOT NULL, updated_by TEXT NOT NULL)""")
 
-    def traffic(self):
+    def invalidate(self):
+        self.cache = None
+
+    def traffic(self, live=True):
         with self.lock:
             now = time.time()
-            if self.sample and now - self.sample['at'] < 15:
+            if self.sample and (not live or now - self.sample['at'] < 15):
                 return self.sample
+            if not live:
+                # Overview counters never wait for the panel; billing rows carry usage.
+                return {'at': 0, 'values': {}, 'error': '暂未读取节点用量'}
             try:
                 rows = self.app.panel.request('clients/list')
                 values = {}
@@ -101,10 +116,18 @@ class UserWorkspace:
                 }
             return self.sample
 
-    def members(self, uid=None):
+    def members(self, uid=None, live=True):
         """Read compact summaries; only detail() loads a user's package history."""
-        sample = self.traffic()
+        sample = self.traffic(live)
         now = int(time.time())
+        cache = self.cache
+        if (
+            uid is None
+            and cache
+            and cache['sample'] is sample
+            and now - cache['at'] < 5
+        ):
+            return [dict(r) for r in cache['rows']], sample
         with self.app.ledger.connect() as db:
             rows = [
                 dict(r)
@@ -112,11 +135,12 @@ class UserWorkspace:
                     """SELECT a.id,a.username,a.admin,a.must_change,
                 m.quota,m.expires,m.disabled,m.deleting,m.revision,m.synced_revision,m.sync_error,m.created,
                 m.last_sync_attempt,m.last_synced_at,m.panel_email,
+                (SELECT email FROM verified_emails WHERE account_id=a.id) AS email,
+                (SELECT body FROM admin_user_notes WHERE member_id=m.id) AS note_body,
                 (SELECT MAX(d.seen) FROM sessions s JOIN session_details d ON d.digest=s.digest
                     WHERE s.account_id=m.id) AS last_web_seen,
                 (SELECT changed FROM user_traffic_activity WHERE member_id=m.id) AS last_proxy_activity,
                 COALESCE((SELECT counter_reset FROM user_traffic_activity WHERE member_id=m.id),0) AS counter_reset,
-                EXISTS(SELECT 1 FROM admin_user_notes WHERE member_id=m.id) AS has_note,
                 (SELECT label FROM cards WHERE redeemed_by=m.id AND kind='base' ORDER BY redeemed_at DESC,id DESC LIMIT 1) AS plan_name
                 FROM accounts a JOIN members m ON m.id=a.id """
                     + ('WHERE a.id=? ' if uid is not None else '')
@@ -126,6 +150,7 @@ class UserWorkspace:
             ]
             billing_by_id = summaries(db, now, uid) if self.app.ledger.package_billing else {}
         for row in rows:
+            row['has_note'] = int(row['note_body'] is not None)
             row['used'] = sample['values'].get(row.pop('panel_email'))
             row['remaining'] = None if row['used'] is None else max(0, row['quota'] - row['used'])
             billing = billing_by_id.get(row['id'])
@@ -159,12 +184,15 @@ class UserWorkspace:
                 if row['last_proxy_activity'] and now - row['last_proxy_activity'] <= 60
                 else 'unconfirmed'
             )
+        if uid is None:
+            self.cache = {'at': now, 'sample': sample, 'rows': rows}
+            rows = [dict(r) for r in rows]
         return rows, sample
 
-    def listing(self, query):
+    def listing(self, query, live=True):
         keyword = query.get('q', [''])[0].strip().lower()
         scope = query.get('scope', ['all'])[0]
-        if len(keyword) > 32 or scope not in SCOPES:
+        if len(keyword) > 64 or scope not in SCOPES:
             raise DomainError('筛选条件不正确')
         sort = query.get('sort', ['created'])[0]
         direction = query.get('direction', ['desc'])[0]
@@ -174,8 +202,19 @@ class UserWorkspace:
             page = max(1, int(query.get('page', ['1'])[0]))
         except ValueError:
             raise DomainError('页码不正确') from None
-        rows, sample = self.members()
-        rows = [m for m in rows if keyword in m['username'].lower()]
+        rows, sample = self.members(live=live)
+        # Username, verified email, current plan name or the admin's private note.
+        rows = [
+            m
+            for m in rows
+            if not keyword
+            or any(
+                keyword in (m[k] or '').lower()
+                for k in ('username', 'email', 'plan_name', 'note_body')
+            )
+        ]
+        for m in rows:
+            del m['note_body']
         now = int(time.time())
 
         def matches(m, key):
@@ -221,6 +260,7 @@ class UserWorkspace:
         member = next((m for m in rows if m['id'] == uid), None)
         if not member:
             raise DomainError('用户不存在')
+        del member['note_body']
         with self.app.ledger.connect() as db:
             if self.app.ledger.package_billing:
                 billing = snapshot(db, uid, int(time.time()))
@@ -287,14 +327,100 @@ class UserWorkspace:
             self.app.ledger.audit(db, actor, 'account.note', uid)
 
     def badges(self):
-        """Cheap sidebar counters; never call the panel."""
+        """Cheap sidebar counters; never call the panel.
+
+        Pending sync normally clears within a minute, so only members still
+        pending after PENDING_BADGE_AFTER seconds are counted.
+        """
+        now = int(time.time())
         with self.app.ledger.connect() as db:
-            row = db.execute(
-                """SELECT (SELECT COUNT(*) FROM support_tickets WHERE status='waiting') AS tickets,
+            row = dict(
+                db.execute(
+                    """SELECT (SELECT COUNT(*) FROM support_tickets WHERE status='waiting') AS tickets,
                 (SELECT COUNT(*) FROM members WHERE sync_error IS NOT NULL) AS sync_errors,
-                (SELECT COUNT(*) FROM members WHERE revision>synced_revision) AS pending"""
-            ).fetchone()
-        return dict(row)
+                (SELECT COUNT(*) FROM payment_orders WHERE status IN ('paid','review')) AS orders"""
+                ).fetchone()
+            )
+            pending = {
+                r[0]
+                for r in db.execute(
+                    'SELECT id FROM members WHERE revision>synced_revision AND sync_error IS NULL'
+                )
+            }
+        with self.lock:
+            self.pending_since = {
+                uid: self.pending_since.get(uid, now) for uid in pending
+            }
+            row['pending'] = sum(
+                now - since >= PENDING_BADGE_AFTER for since in self.pending_since.values()
+            )
+        return row
+
+    def bulk(self, actor, data):
+        """Apply one action to up to 100 selected users; each user commits separately."""
+        action, ids = data.get('action'), data.get('ids')
+        if (
+            action not in BULK_ACTIONS
+            or not isinstance(ids, list)
+            or not 0 < len(ids) <= 100
+            or not all(isinstance(i, str) and 0 < len(i) <= 64 for i in ids)
+        ):
+            raise DomainError('批量操作参数不正确')
+        spec = data.get('spec') if action == 'grant' else None
+        if action == 'grant' and (not isinstance(spec, dict) or spec.get('kind') != 'base'):
+            raise DomainError('批量赠送只支持基础套餐；流量包请在用户详情中逐个选择套餐')
+        results = []
+        for uid in dict.fromkeys(ids):
+            try:
+                if uid == actor:
+                    raise DomainError('不能操作自己的管理员账号')
+                if action == 'grant':
+                    self.app.ledger.grant(actor, uid, spec)
+                elif action == 'sync':
+                    self.retry_sync(actor, uid)
+                else:
+                    self.set_disabled(actor, uid, action == 'disable')
+                results.append({'id': uid, 'ok': True})
+            except DomainError as exc:
+                results.append({'id': uid, 'ok': False, 'error': str(exc)})
+        self.invalidate()
+        self.app.wake.set()
+        return {'results': results, 'ok': sum(r['ok'] for r in results)}
+
+    def target(self, db, uid):
+        target = db.execute(
+            'SELECT a.admin,m.* FROM accounts a JOIN members m ON m.id=a.id WHERE a.id=?',
+            (uid,),
+        ).fetchone()
+        if not target or target['admin']:
+            raise DomainError('只能操作普通用户')
+        if target['deleting']:
+            raise DomainError('账号删除处理中，不能修改状态')
+        return target
+
+    def retry_sync(self, actor, uid):
+        """Returns False when nothing is waiting for the nodes."""
+        with self.app.ledger.transaction() as db:
+            target = self.target(db, uid)
+            if target['revision'] <= target['synced_revision']:
+                return False
+            self.app.ledger.audit(db, actor, 'account.retry_sync', uid)
+        return True
+
+    def set_disabled(self, actor, uid, disabled, expected=None):
+        with self.app.ledger.transaction() as db:
+            target = self.target(db, uid)
+            if expected is not None and expected != bool(target['disabled']):
+                raise DomainError('用户状态已改变，请刷新详情后重试')
+            db.execute(
+                """UPDATE members SET disabled=?,
+                sync_error=NULL,revision=revision+CASE WHEN quota>0 AND disabled!=? THEN 1 ELSE 0 END WHERE id=?""",
+                (int(disabled), int(disabled), uid),
+            )
+            db.execute('DELETE FROM sessions WHERE account_id=?', (uid,))
+            self.app.ledger.audit(
+                db, actor, 'account.disable' if disabled else 'account.enable', uid
+            )
 
     def audit_log(self, query):
         """Paged audit trail with readable actors and targets."""
