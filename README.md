@@ -95,7 +95,7 @@ NAT 节点可用 `--host IP --ssh-port 端口 --ports 分配范围 --name 名称
   流媒体、Telegram、微软、苹果、广告拦截（默认拒绝，可改直连）、漏网之鱼。
 - Clash/Mihomo：fake-ip + 国内 DoH，开启嗅探；规则集经节点下载、每日更新。`mihomo -t` 校验及实际加载规则集已验证。
 - 小火箭：`?format=shadowrocket` 只给节点，`?format=shadowrocket-conf` 给分流配置（不含节点和凭据，
-  地区组用 `policy-regex-filter` 匹配订阅节点名），列表经 jsDelivr 镜像下载。门户 iPhone 入口提供「导入分流配置」。
+  地区组用 `policy-regex-filter` 匹配订阅节点名），列表经 jsDelivr 镜像下载。门户不放单独的导入按钮，需要时手动添加该链接。
 
 ## 账号与数据边界
 
