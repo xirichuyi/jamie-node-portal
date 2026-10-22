@@ -64,38 +64,87 @@ def account_groups(usage):
     return [{'name': label, 'type': 'select', 'proxies': [PROXY]}
             for label in (quota, deadline)]
 
-# name -> (behavior, MetaCubeX meta-rules-dat path); small binary .mrs sets.
-RULE_SETS = {
-    'private_domain': ('domain', 'geosite/private'),
-    'ads': ('domain', 'geosite/category-ads-all'),
-    'ai': ('domain', 'geosite/category-ai-!cn'),
-    'youtube': ('domain', 'geosite/youtube'),
-    'netflix': ('domain', 'geosite/netflix'),
-    'disney': ('domain', 'geosite/disney'),
-    'spotify': ('domain', 'geosite/spotify'),
-    'tiktok': ('domain', 'geosite/tiktok'),
-    'telegram': ('domain', 'geosite/telegram'),
-    'github': ('domain', 'geosite/github'),
-    'google': ('domain', 'geosite/google'),
-    'onedrive': ('domain', 'geosite/onedrive'),
-    'microsoft': ('domain', 'geosite/microsoft'),
-    'apple_cn': ('domain', 'geosite/apple-cn'),
-    'games_cn': ('domain', 'geosite/category-games@cn'),
-    'proxy_domain': ('domain', 'geosite/geolocation-!cn'),
-    'cn_domain': ('domain', 'geosite/cn'),
-    'private_ip': ('ipcidr', 'geoip/private'),
-    'telegram_ip': ('ipcidr', 'geoip/telegram'),
-    'netflix_ip': ('ipcidr', 'geoip/netflix'),
-    'google_ip': ('ipcidr', 'geoip/google'),
-    'cn_ip': ('ipcidr', 'geoip/cn'),
-}
+ROCKET_RULES = 'https://testingcf.jsdelivr.net/gh/blackmatrix7/ios_rule_script@master/rule/Shadowrocket/'
+
+# One routing table for both clients, top to bottom, first match wins:
+# (comment, outbound, Clash MetaCubeX sets, Shadowrocket blackmatrix7 lists, shared domain fixes).
+# geoip/* sets match by IP; only the final CN-IP rule resolves the domain.
+ROUTES = [
+    ('局域网与私有地址', 'DIRECT', ['geosite/private', 'geoip/private'], ['Lan/Lan'], []),
+    ('必须直连：系统更新与游戏下载 CDN，国内有节点，走代理只会更慢、白耗流量', 'DIRECT',
+     ['geosite/category-games@cn', 'geosite/steam@cn'], ['SteamCN/SteamCN'],
+     ['swcdn.apple.com', 'updates.cdn-apple.com', 'mesu.apple.com', 'appldnld.apple.com', 'oscdn.apple.com',
+      'windowsupdate.com', 'delivery.mp.microsoft.com', 'update.microsoft.com', 'steamcontent.com']),
+    ('国内 AI：直连', 'DIRECT', ['geosite/category-ai-cn'], [],
+     ['deepseek.com', 'doubao.com', 'kimi.com', 'moonshot.cn', 'chatglm.cn', 'zhipuai.cn', 'hailuoai.com',
+      'yuanbao.tencent.com', 'tongyi.aliyun.com', 'yiyan.baidu.com']),
+    ('BT 下载 tracker：直连', 'DIRECT', ['geosite/tracker'], [], []),
+    ('广告与追踪：默认拦截，误伤时可在「广告拦截」组改为直连', ADS,
+     ['geosite/category-ads-all'], ['AdvertisingLite/AdvertisingLite'], []),
+    # Adapted from the hand-maintained list in Johnshall/Shadowrocket-ADBlock-Rules-Forever:
+    # LinkedIn and Bing sit inside the Microsoft lists that are otherwise direct.
+    ('必须代理：国内能解析、但直连无法正常使用或会被识别为国内的海外服务', PROXY, [], ['AppleProxy/AppleProxy'],
+     ['googleapis.cn', 'xn--ngstr-lra8j.com', 'apple.news', 'testflight.apple.com',
+      'linkedin.com', 'linkedin.cn', 'licdn.com', 'bing.com', 'location.microsoft.com', 'hoyolab.com',
+      'dnsleaktest.com', 'ipleak.net', 'browserleaks.com', 'browserleaks.org']),
+    ('海外 AI：OpenAI、Claude、Gemini、Copilot 等，限制地区较多，单独选节点', AI, ['geosite/category-ai-!cn'],
+     ['OpenAI/OpenAI', 'Claude/Claude', 'Gemini/Gemini', 'Copilot/Copilot'],
+     ['anthropic.com', 'claude.ai', 'claudeusercontent.com', 'clau.de', 'openai.com', 'chatgpt.com',
+      'oaistatic.com', 'oaiusercontent.com', 'gemini.google.com', 'copilot.microsoft.com', 'perplexity.ai',
+      'x.ai', 'grok.com', 'cursor.com', 'cursor.sh', 'cursorapi.com', 'openrouter.ai', 'poe.com',
+      'huggingface.co', 'character.ai', 'midjourney.com']),
+    ('流媒体', MEDIA,
+     ['geosite/youtube', 'geosite/netflix', 'geosite/disney', 'geosite/spotify', 'geosite/tiktok', 'geoip/netflix'],
+     ['YouTube/YouTube', 'Netflix/Netflix', 'Disney/Disney', 'Spotify/Spotify', 'TikTok/TikTok'], []),
+    ('Telegram', TELEGRAM, ['geosite/telegram', 'geoip/telegram'], ['Telegram/Telegram'], []),
+    ('常用海外服务：代理', PROXY, ['geosite/github', 'geosite/google', 'geoip/google'],
+     ['GitHub/GitHub', 'Google/Google', 'Twitter/Twitter', 'Facebook/Facebook', 'Instagram/Instagram',
+      'Whatsapp/Whatsapp', 'Discord/Discord', 'Reddit/Reddit', 'Wikipedia/Wikipedia', 'Docker/Docker',
+      'PayPal/PayPal', 'Steam/Steam'], []),
+    ('微软：国内可直连，默认直连', MICROSOFT, ['geosite/onedrive', 'geosite/microsoft'], ['Microsoft/Microsoft'], []),
+    ('苹果：iCloud、App Store 等国内可直连，默认直连', APPLE, ['geosite/apple'], ['Apple/Apple'], []),
+    ('其他海外网站：代理', PROXY, ['geosite/geolocation-!cn'], ['ProxyLite/ProxyLite'], []),
+    ('国内网站：直连', 'DIRECT', ['geosite/cn'], ['China/China_Domain'], []),
+]
+
+# Process names as reported on Windows, macOS, Linux and Android.
+DIRECT_PROCESSES = ['qbittorrent', 'qbittorrent.exe', 'qBittorrent', 'Transmission', 'transmission-daemon',
+    'transmission-qt.exe', 'aria2c', 'aria2c.exe', 'Motrix', 'Motrix.exe', 'Thunder', 'Thunder.exe',
+    'DownloadServer.exe', 'BitComet.exe', 'uTorrent.exe', 'BitTorrent.exe', 'Folx',
+    'tailscale', 'tailscaled', 'tailscale.exe', 'tailscaled.exe', 'zerotier-one', 'zerotier-one.exe',
+    'frpc', 'frpc.exe', 'com.xunlei.downloadprovider', 'org.proninyaroslav.libretorrent',
+    'com.xunlei.downloadprovider.pad']
+
+def set_name(source):
+    kind, name = source.split('/')
+    return name + ('_ip' if kind == 'geoip' else '')
 
 def rule_providers():
-    return {name: {'type': 'http', 'behavior': behavior, 'format': 'mrs',
-            'path': './rules/Jamie-Node-' + name + '.mrs', 'interval': 86400,
+    return {set_name(source): {'type': 'http', 'behavior': 'ipcidr' if source.startswith('geoip/') else 'domain',
+            'format': 'mrs', 'path': './rules/Jamie-Node-' + set_name(source) + '.mrs', 'interval': 86400,
             'proxy': PROXY,
             'url': 'https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/' + source + '.mrs'}
-            for name, (behavior, source) in RULE_SETS.items()}
+            for source in [x for route in ROUTES for x in route[2]] + ['geoip/cn']}
+
+def routing_sections(service, client):
+    """[(comment, rules)] for 'clash' or 'shadowrocket', ending with the CN-IP and final rules."""
+    sections = [('本站与 DNS：直连，保证随时能更新订阅', service_rules(service))]
+    if client == 'clash':
+        sections.append(('下载与组网软件按程序名直连（BT 走代理既慢又耗流量；组网工具避免绕回代理）',
+                         [f'PROCESS-NAME,{name},DIRECT' for name in DIRECT_PROCESSES]))
+    for comment, outbound, sets, lists, domains in ROUTES:
+        rules = [f'DOMAIN-SUFFIX,{d},{outbound}' for d in domains]
+        if client == 'clash':
+            rules += [f'RULE-SET,{set_name(x)},{outbound}' + (',no-resolve' if x.startswith('geoip/') else '')
+                      for x in sets]
+        else:
+            rules += [f'RULE-SET,{ROCKET_RULES}{x}.list,{outbound}' for x in lists]
+        if rules:
+            sections.append((comment, rules))
+    sections.append(('国内 IP：解析域名后判断，未收录的国内网站也能直连',
+                     ['RULE-SET,cn_ip,DIRECT' if client == 'clash' else 'GEOIP,CN,DIRECT']))
+    sections.append(('以上都没匹配：走「漏网之鱼」，默认代理', [('MATCH,' if client == 'clash' else 'FINAL,') + FINAL]))
+    return sections
 
 def service_rules(service):
     hosts = (urllib.parse.urlsplit(service['origin']).hostname, service['panel_host'])
@@ -105,7 +154,7 @@ def service_rules(service):
             + ['DOMAIN,dns.alidns.com,DIRECT', 'DOMAIN,doh.pub,DIRECT'])
 
 # Domains that must keep real IPs: LAN discovery, time sync, STUN/P2P, consoles, captive checks.
-FAKE_IP_FILTER = ['rule-set:private_domain', '+.lan', '+.local', '+.localdomain', '+.home.arpa',
+FAKE_IP_FILTER = ['rule-set:private', '+.lan', '+.local', '+.localdomain', '+.home.arpa',
     '+.msftconnecttest.com', '+.msftncsi.com', 'captive.apple.com', 'time.*.com', 'time.*.gov',
     'time.*.edu.cn', 'time.*.apple.com', 'ntp.*.com', '+.pool.ntp.org', '+.ntp.org.cn',
     'time1.cloud.tencent.com', '+.stun.*.*', '+.stun.*.*.*', '+.stun.*.*.*.*',
@@ -180,29 +229,7 @@ def convert(body, usage=None):
         {'name': ADS, 'type': 'select', 'proxies': ['REJECT', 'DIRECT']},
         {'name': FINAL, 'type': 'select', 'proxies': [PROXY, 'DIRECT']},
     ] + regional + account_groups(usage))
-    rules = service_rules(service) + [
-        'RULE-SET,private_domain,DIRECT',
-        'RULE-SET,ads,' + ADS,
-        'RULE-SET,ai,' + AI,
-        *('RULE-SET,' + n + ',' + MEDIA for n in ('youtube', 'netflix', 'disney', 'spotify', 'tiktok')),
-        'RULE-SET,telegram,' + TELEGRAM,
-        'RULE-SET,github,' + PROXY,
-        'RULE-SET,google,' + PROXY,
-        'RULE-SET,onedrive,' + MICROSOFT,
-        'RULE-SET,microsoft,' + MICROSOFT,
-        'RULE-SET,apple_cn,' + APPLE,
-        'RULE-SET,games_cn,DIRECT',
-        'RULE-SET,proxy_domain,' + PROXY,
-        'RULE-SET,cn_domain,DIRECT',
-        'RULE-SET,private_ip,DIRECT,no-resolve',
-        'RULE-SET,telegram_ip,' + TELEGRAM + ',no-resolve',
-        'RULE-SET,netflix_ip,' + MEDIA + ',no-resolve',
-        'RULE-SET,google_ip,' + PROXY + ',no-resolve',
-        # Resolved with domestic DoH so unlisted Chinese sites still go direct.
-        'RULE-SET,cn_ip,DIRECT',
-        'MATCH,' + FINAL,
-    ]
-    return yaml.dump({'mixed-port': 7890, 'allow-lan': False,
+    head = yaml.dump({'mixed-port': 7890, 'allow-lan': False,
         'mode': 'rule', 'log-level': 'warning', 'ipv6': False,
         'unified-delay': True, 'tcp-concurrent': True,
         'profile': {'store-selected': True, 'store-fake-ip': True},
@@ -217,11 +244,13 @@ def convert(body, usage=None):
                 'proxy-server-nameserver': DOMESTIC_DOH},
         'proxies': proxies,
         'proxy-groups': groups,
-        'rule-providers': rule_providers(),
-        'rules': rules},
-        Dumper=PlainDumper, allow_unicode=True, sort_keys=False).encode()
-
-ROCKET_RULES = 'https://testingcf.jsdelivr.net/gh/blackmatrix7/ios_rule_script@master/rule/Shadowrocket/'
+        'rule-providers': rule_providers()},
+        Dumper=PlainDumper, allow_unicode=True, sort_keys=False)
+    # Rules are written by hand so each section keeps its comment in the profile.
+    lines = ['rules:']
+    for comment, rules in routing_sections(service, 'clash'):
+        lines += ['# ' + comment] + ['- ' + json.dumps(rule, ensure_ascii=False) for rule in rules]
+    return (head + '\n'.join(lines) + '\n').encode()
 
 def shadowrocket_config(raw, update_url):
     """Routing profile for Shadowrocket; nodes come from the separately imported subscription."""
@@ -265,22 +294,7 @@ def shadowrocket_config(raw, update_url):
         *(f'{group} = url-test,{probe},policy-regex-filter={re.escape(region)}' for group, region in groups),
         '',
         '[Rule]',
-        *service_rules(service),
-        'RULE-SET,' + ROCKET_RULES + 'Lan/Lan.list,DIRECT',
-        'RULE-SET,' + ROCKET_RULES + 'AdvertisingLite/AdvertisingLite.list,' + ADS,
-        *('RULE-SET,' + ROCKET_RULES + n + '.list,' + AI for n in ('OpenAI/OpenAI', 'Claude/Claude', 'Gemini/Gemini')),
-        *(f'DOMAIN-SUFFIX,{d},{AI}' for d in ('claudeusercontent.com', 'clau.de', 'perplexity.ai', 'x.ai', 'grok.com')),
-        *('RULE-SET,' + ROCKET_RULES + n + '.list,' + MEDIA
-          for n in ('YouTube/YouTube', 'Netflix/Netflix', 'Disney/Disney', 'Spotify/Spotify', 'TikTok/TikTok')),
-        'RULE-SET,' + ROCKET_RULES + 'Telegram/Telegram.list,' + TELEGRAM,
-        'RULE-SET,' + ROCKET_RULES + 'GitHub/GitHub.list,' + PROXY,
-        'RULE-SET,' + ROCKET_RULES + 'Google/Google.list,' + PROXY,
-        'RULE-SET,' + ROCKET_RULES + 'Microsoft/Microsoft.list,' + MICROSOFT,
-        'RULE-SET,' + ROCKET_RULES + 'Apple/Apple.list,' + APPLE,
-        'RULE-SET,' + ROCKET_RULES + 'China/China_Domain.list,DIRECT',
-        'GEOIP,LAN,DIRECT',
-        'GEOIP,CN,DIRECT',
-        'FINAL,' + FINAL,
+        *(line for comment, rules in routing_sections(service, 'shadowrocket') for line in ['# ' + comment, *rules]),
         '',
         '[Host]',
         'localhost = 127.0.0.1',
