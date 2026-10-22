@@ -82,6 +82,10 @@ class DynamicSubscriptionTests(unittest.TestCase):
         self.assertNotIn('rule-providers', rocket)
         self.assertFalse([r for r in rocket['rules'] if '.mrs' in r or 'PROCESS-NAME' in r])
         self.assertTrue(any(r.startswith('RULE-SET,https://') for r in rocket['rules']))
+        # blackmatrix7 *_Domain.list files are plain domain sets and only work as DOMAIN-SET.
+        sets = [r for r in rocket['rules'] if '_Domain.list' in r]
+        self.assertTrue(sets and all(r.startswith('DOMAIN-SET,') for r in sets))
+        self.assertIn('DOMAIN-SET,' + adapter.ROCKET_RULES + 'ChinaMax/ChinaMax_Domain.list,DIRECT', rocket['rules'])
         self.assertEqual(rocket['rules'][-2:], ['GEOIP,CN,DIRECT', 'MATCH,' + adapter.FINAL])
         pick = adapter.choose_format
         self.assertEqual(pick('/sub/x', {'format': ['clash']}, 'Shadowrocket/2070 CFNetwork', ''), 'rocket-yaml')

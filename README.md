@@ -98,7 +98,7 @@ NAT 节点可用 `--host IP --ssh-port 端口 --ports 分配范围 --name 名称
   （UA 含 Shadowrocket，或 `?format=shadowrocket-yaml`）返回同样节点与策略组、规则改用 blackmatrix7 列表 URL 的 YAML。
   首页「订阅」导入的仍只是节点。
 - 小火箭：`?format=shadowrocket` 只给节点，`?format=shadowrocket-conf` 给分流配置（不含节点和凭据，
-  地区组用 `policy-regex-filter` 匹配订阅节点名），列表经 jsDelivr 镜像下载。门户不放单独的导入按钮，需要时手动添加该链接。
+  地区组用 `policy-regex-filter` 匹配订阅节点名），列表经 jsDelivr 镜像下载；blackmatrix7 的 `X_Domain.list` 是纯域名集，必须用 `DOMAIN-SET` 引用（用 RULE-SET 会整份失效），国内用 ChinaMax、海外用 Global 合集。门户不放单独的导入按钮，需要时手动添加该链接。
 
 ## 账号与数据边界
 

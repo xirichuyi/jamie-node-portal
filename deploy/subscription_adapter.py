@@ -68,22 +68,25 @@ ROCKET_RULES = 'https://testingcf.jsdelivr.net/gh/blackmatrix7/ios_rule_script@m
 
 # One routing table for both clients, top to bottom, first match wins:
 # (comment, outbound, Clash MetaCubeX sets, Shadowrocket blackmatrix7 lists, shared domain fixes).
+# Shadowrocket lists follow blackmatrix7's README: use both X.list and X_Domain.list where both exist.
 # geoip/* sets match by IP; only the final CN-IP rule resolves the domain.
 ROUTES = [
     ('局域网与私有地址', 'DIRECT', ['geosite/private', 'geoip/private'], ['Lan/Lan'], []),
     ('必须直连：系统更新与游戏下载 CDN，国内有节点，走代理只会更慢、白耗流量', 'DIRECT',
      ['geosite/category-games@cn', 'geosite/steam@cn'], ['SteamCN/SteamCN'],
      ['swcdn.apple.com', 'updates.cdn-apple.com', 'mesu.apple.com', 'appldnld.apple.com', 'oscdn.apple.com',
-      'windowsupdate.com', 'delivery.mp.microsoft.com', 'update.microsoft.com', 'steamcontent.com']),
+      'windowsupdate.com', 'delivery.mp.microsoft.com', 'update.microsoft.com', 'steamcontent.com',
+      # The foreign collection's 'amazon' keyword would otherwise catch Amazon/AWS China.
+      'amazon.cn', 'amazonaws.com.cn']),
     ('国内 AI：直连', 'DIRECT', ['geosite/category-ai-cn'], [],
      ['deepseek.com', 'doubao.com', 'kimi.com', 'moonshot.cn', 'chatglm.cn', 'zhipuai.cn', 'hailuoai.com',
       'yuanbao.tencent.com', 'tongyi.aliyun.com', 'yiyan.baidu.com']),
     ('BT 下载 tracker：直连', 'DIRECT', ['geosite/tracker'], [], []),
     ('广告与追踪：默认拦截，误伤时可在「广告拦截」组改为直连', ADS,
-     ['geosite/category-ads-all'], ['AdvertisingLite/AdvertisingLite'], []),
+     ['geosite/category-ads-all'], ['AdvertisingLite/AdvertisingLite', 'AdvertisingLite/AdvertisingLite_Domain'], []),
     # Adapted from the hand-maintained list in Johnshall/Shadowrocket-ADBlock-Rules-Forever:
     # LinkedIn and Bing sit inside the Microsoft lists that are otherwise direct.
-    ('必须代理：国内能解析、但直连无法正常使用或会被识别为国内的海外服务', PROXY, [], ['AppleProxy/AppleProxy'],
+    ('必须代理：国内能解析、但直连无法正常使用或会被识别为国内的海外服务', PROXY, [], [],
      ['googleapis.cn', 'xn--ngstr-lra8j.com', 'apple.news', 'testflight.apple.com',
       'linkedin.com', 'linkedin.cn', 'licdn.com', 'bing.com', 'location.microsoft.com', 'hoyolab.com',
       'dnsleaktest.com', 'ipleak.net', 'browserleaks.com', 'browserleaks.org']),
@@ -102,9 +105,9 @@ ROUTES = [
       'Whatsapp/Whatsapp', 'Discord/Discord', 'Reddit/Reddit', 'Wikipedia/Wikipedia', 'Docker/Docker',
       'PayPal/PayPal', 'Steam/Steam'], []),
     ('微软：国内可直连，默认直连', MICROSOFT, ['geosite/onedrive', 'geosite/microsoft'], ['Microsoft/Microsoft'], []),
-    ('苹果：iCloud、App Store 等国内可直连，默认直连', APPLE, ['geosite/apple'], ['Apple/Apple'], []),
-    ('其他海外网站：代理', PROXY, ['geosite/geolocation-!cn'], ['ProxyLite/ProxyLite'], []),
-    ('国内网站：直连', 'DIRECT', ['geosite/cn'], ['China/China_Domain'], []),
+    ('苹果：iCloud、App Store 等国内可直连，默认直连', APPLE, ['geosite/apple'], ['Apple/Apple', 'Apple/Apple_Domain'], []),
+    ('其他海外网站：代理', PROXY, ['geosite/geolocation-!cn'], ['Global/Global', 'Global/Global_Domain'], []),
+    ('国内网站：直连', 'DIRECT', ['geosite/cn'], ['ChinaMax/ChinaMax', 'ChinaMax/ChinaMax_Domain'], []),
 ]
 
 # Process names as reported on Windows, macOS, Linux and Android.
@@ -138,7 +141,9 @@ def routing_sections(service, client):
             rules += [f'RULE-SET,{set_name(x)},{outbound}' + (',no-resolve' if x.startswith('geoip/') else '')
                       for x in sets]
         else:
-            rules += [f'RULE-SET,{ROCKET_RULES}{x}.list,{outbound}' for x in lists]
+            # blackmatrix7: X.list holds typed rules (RULE-SET); X_Domain.list is a plain domain set.
+            rules += [('DOMAIN-SET' if x.endswith('_Domain') else 'RULE-SET') + f',{ROCKET_RULES}{x}.list,{outbound}'
+                      for x in lists]
         if rules:
             sections.append((comment, rules))
     sections.append(('国内 IP：解析域名后判断，未收录的国内网站也能直连',
