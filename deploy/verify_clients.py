@@ -49,6 +49,9 @@ assert yaml.count('type: hysteria2')+yaml.count('type: vless')==len(expected) an
 assert len(re.findall(r'^  fingerprint:',yaml,re.M))==yaml.count('type: hysteria2')
 assert yaml.count('reality-opts:')==yaml.count('type: vless') and 'skip-cert-verify: true' not in yaml
 assert yaml==fetch('Mozilla/5.0','?format=clash').decode()
+rule_sets=len(re.findall(r'^    behavior:',yaml,re.M))
+rocket=fetch('Shadowrocket/2','?format=shadowrocket-conf').decode()
+assert '[Proxy Group]' in rocket and 'FINAL,' in rocket and 'pinSHA256' not in rocket
 native=base64.b64decode(fetch('Shadowrocket/2'),validate=True).decode()
 assert len(native.splitlines())==len(expected)
 assert {(urllib.parse.urlsplit(line).hostname, urllib.parse.urlsplit(line).port) for line in native.splitlines()} == expected
@@ -91,14 +94,14 @@ with tempfile.TemporaryDirectory(prefix='jamie-client-qa-') as work:
         else:raise RuntimeError('Isolated Mihomo did not start')
         for _ in range(60):
             providers=get('/providers/rules')['providers']
-            if len(providers)==4 and all(x.get('ruleCount',0)>0 for x in providers.values()):break
+            if len(providers)==rule_sets and all(x.get('ruleCount',0)>0 for x in providers.values()):break
             time.sleep(.5)
         else:raise RuntimeError('Rule provider loading incomplete before requests')
         failures=[]
         for name,p in proxies.items():
             if p['type'].lower() not in ('hysteria2','vless'):continue
             if name not in selected:continue
-            req=urllib.request.Request(f'http://127.0.0.1:{controller}/proxies/'+urllib.parse.quote('Jamie-Node'),
+            req=urllib.request.Request(f'http://127.0.0.1:{controller}/proxies/'+urllib.parse.quote('🚀 节点选择'),
                 data=json.dumps({'name':name}).encode(),method='PUT',headers={'Content-Type':'application/json'})
             local.open(req,timeout=3).close()
             result=subprocess.run(['curl','-q','--silent','--show-error','--proxy',f'socks5h://127.0.0.1:{socks}','--noproxy','',
@@ -121,7 +124,7 @@ with tempfile.TemporaryDirectory(prefix='jamie-client-qa-') as work:
         if failures:raise RuntimeError('Proxy verification failed for '+', '.join(failures))
         for _ in range(20):
             providers=get('/providers/rules')['providers']
-            if len(providers)==4 and all(x.get('ruleCount',0)>0 for x in providers.values()):break
+            if len(providers)==rule_sets and all(x.get('ruleCount',0)>0 for x in providers.values()):break
             time.sleep(.5)
         else:raise RuntimeError('Rule provider loading incomplete')
         print('Rule providers: PASS')

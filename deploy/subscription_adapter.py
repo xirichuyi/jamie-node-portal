@@ -17,8 +17,28 @@ sys.path.insert(0, '/opt/jamie-portal/current/backend')
 from node_catalog import active_nodes, service_settings
 from proxy_links import decode_links, parse_link
 
+def node_rows():
+    return {(row['server'], row['port']): row for row in active_nodes()}
+
 def node_names():
-    return {(row['server'], row['port']): row['name'] for row in active_nodes()}
+    return {key: row['name'] for key, row in node_rows().items()}
+
+# Policy group names shared by the Clash and Shadowrocket profiles.
+PROXY, AUTO, FALLBACK = '🚀 节点选择', '♻️ 自动选择', '🔯 故障转移'
+AI, MEDIA, TELEGRAM = '🤖 AI 服务', '📺 流媒体', '📲 Telegram'
+MICROSOFT, APPLE, ADS, FINAL = 'Ⓜ️ 微软服务', '🍎 苹果服务', '🛑 广告拦截', '🐟 漏网之鱼'
+# AI services refuse many regions; these are tried first for the AI group.
+AI_REGIONS = ('美国', '日本', '新加坡')
+DOMESTIC_DOH = ['https://dns.alidns.com/dns-query', 'https://doh.pub/dns-query']
+BOOTSTRAP_DNS = ['223.5.5.5', '119.29.29.29']
+
+def region_groups(regions):
+    """[(group name, region)] in catalog order, AI-friendly regions first."""
+    ordered = sorted(regions, key=lambda r: AI_REGIONS.index(r[0]) if r[0] in AI_REGIONS else len(AI_REGIONS))
+    return [(flag + ' ' + region + '节点' if flag else region + '节点', region) for region, flag in ordered]
+
+def flag_of(name):
+    return name[:2] if len(name) >= 2 and all(0x1F1E6 <= ord(c) <= 0x1F1FF for c in name[:2]) else ''
 
 def account_groups(usage):
     fields = {}
@@ -41,31 +61,68 @@ def account_groups(usage):
         days = max(0, math.ceil((expiry - time.time()) / 86400))
         deadline = f'到期：{date}（剩余 {days} 天）' if expiry > time.time() else f'已到期：{date}'
     # Display-only groups, never referenced by routing rules or node selection.
-    return [{'name': label, 'type': 'select', 'proxies': ['Jamie-Node']}
+    return [{'name': label, 'type': 'select', 'proxies': [PROXY]}
             for label in (quota, deadline)]
 
+# name -> (behavior, MetaCubeX meta-rules-dat path); small binary .mrs sets.
+RULE_SETS = {
+    'private_domain': ('domain', 'geosite/private'),
+    'ads': ('domain', 'geosite/category-ads-all'),
+    'ai': ('domain', 'geosite/category-ai-!cn'),
+    'youtube': ('domain', 'geosite/youtube'),
+    'netflix': ('domain', 'geosite/netflix'),
+    'disney': ('domain', 'geosite/disney'),
+    'spotify': ('domain', 'geosite/spotify'),
+    'tiktok': ('domain', 'geosite/tiktok'),
+    'telegram': ('domain', 'geosite/telegram'),
+    'github': ('domain', 'geosite/github'),
+    'google': ('domain', 'geosite/google'),
+    'onedrive': ('domain', 'geosite/onedrive'),
+    'microsoft': ('domain', 'geosite/microsoft'),
+    'apple_cn': ('domain', 'geosite/apple-cn'),
+    'games_cn': ('domain', 'geosite/category-games@cn'),
+    'proxy_domain': ('domain', 'geosite/geolocation-!cn'),
+    'cn_domain': ('domain', 'geosite/cn'),
+    'private_ip': ('ipcidr', 'geoip/private'),
+    'telegram_ip': ('ipcidr', 'geoip/telegram'),
+    'netflix_ip': ('ipcidr', 'geoip/netflix'),
+    'google_ip': ('ipcidr', 'geoip/google'),
+    'cn_ip': ('ipcidr', 'geoip/cn'),
+}
+
 def rule_providers():
-    sources = {'private_domain': ('domain', 'geosite/private'),
-               'cn_domain': ('domain', 'geosite/cn'),
-               'proxy_domain': ('domain', 'geosite/geolocation-!cn'),
-               'cn_ip': ('ipcidr', 'geoip/cn')}
     return {name: {'type': 'http', 'behavior': behavior, 'format': 'mrs',
             'path': './rules/Jamie-Node-' + name + '.mrs', 'interval': 86400,
-            'proxy': 'Jamie-Node',
+            'proxy': PROXY,
             'url': 'https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/' + source + '.mrs'}
-            for name, (behavior, source) in sources.items()}
+            for name, (behavior, source) in RULE_SETS.items()}
 
-def convert(body, usage=None):
-    regions = node_names()
-    service = service_settings()
-    direct_rules = [f"DOMAIN,{host},DIRECT" for host in (urllib.parse.urlsplit(service['origin']).hostname, service['panel_host'], service['master_ip'])]
-    direct_rules.append(f"IP-CIDR,{service['master_ip']}/32,DIRECT,no-resolve")
-    proxies = []
+def service_rules(service):
+    hosts = (urllib.parse.urlsplit(service['origin']).hostname, service['panel_host'])
+    return ([f'DOMAIN,{host},DIRECT' for host in hosts]
+            + [f"IP-CIDR,{service['master_ip']}/32,DIRECT,no-resolve"]
+            + [f'IP-CIDR,{ip}/32,DIRECT,no-resolve' for ip in BOOTSTRAP_DNS]
+            + ['DOMAIN,dns.alidns.com,DIRECT', 'DOMAIN,doh.pub,DIRECT'])
+
+# Domains that must keep real IPs: LAN discovery, time sync, STUN/P2P, consoles, captive checks.
+FAKE_IP_FILTER = ['rule-set:private_domain', '+.lan', '+.local', '+.localdomain', '+.home.arpa',
+    '+.msftconnecttest.com', '+.msftncsi.com', 'captive.apple.com', 'time.*.com', 'time.*.gov',
+    'time.*.edu.cn', 'time.*.apple.com', 'ntp.*.com', '+.pool.ntp.org', '+.ntp.org.cn',
+    'time1.cloud.tencent.com', '+.stun.*.*', '+.stun.*.*.*', '+.stun.*.*.*.*',
+    'stun.l.google.com', 'localhost.ptlogin2.qq.com', 'localhost.sec.qq.com', 'localhost.work.weixin.qq.com',
+    '+.srv.nintendo.net', '+.stun.playstation.net', 'xbox.*.microsoft.com', '+.xboxlive.com',
+    '+.battlenet.com.cn', '+.wotgame.cn', '+.wggames.cn', '+.wowsgame.cn', '+.wargaming.net',
+    '+.music.163.com', '+.126.net', 'music.*.com', '+.y.qq.com', 'lens.l.google.com']
+
+def collect_proxies(body):
+    rows = node_rows()
+    proxies, regions = [], []
     for index, line in enumerate(decode_links(body), 1):
         u = urllib.parse.urlsplit(line.strip())
-        name = regions.get((u.hostname, u.port or 443))
-        if name is None:
+        row = rows.get((u.hostname, u.port or 443))
+        if row is None:
             continue  # Unpublished and retired nodes never leak into subscriptions.
+        name = row['name']
         parsed = parse_link(line)
         q = parsed['query']
         if any(p['name'] == name for p in proxies):
@@ -88,50 +145,158 @@ def convert(body, usage=None):
         if 'mport' in q:
             p['ports'] = q['mport'][0]
         proxies.append(p)
+        region = row.get('region') or ''
+        if region and region not in [r for r, _ in regions]:
+            regions.append((region, flag_of(row['name'])))
     if not proxies:
         raise ValueError('No enabled proxies')
+    return proxies, regions, {p['name']: (rows.get((p['server'], p['port'])) or {}).get('region') for p in proxies}
+
+class PlainDumper(yaml.SafeDumper):
+    """No &anchors/*aliases: some clients' editors show them literally."""
+    def ignore_aliases(self, data):
+        return True
+
+def convert(body, usage=None):
+    service = service_settings()
+    proxies, regions, region_of = collect_proxies(body)
     names = [p['name'] for p in proxies]
-    return yaml.safe_dump({'mixed-port': 7890, 'allow-lan': False,
-        'mode': 'rule', 'log-level': 'info', 'ipv6': False,
-        'profile': {'store-selected': True},
+    probe = {'url': service['probe_url'], 'interval': 300, 'lazy': True, 'timeout': 3000}
+    regional = [dict(name=group, type='url-test', tolerance=50,
+                     proxies=[n for n in names if region_of[n] == region], **probe)
+                for group, region in region_groups(regions)]
+    region_names = [g['name'] for g in regional]
+    ai_first = [g for g, r in region_groups(regions) if r in AI_REGIONS] or region_names
+    choose = lambda *head: list(dict.fromkeys([*head, *region_names, *names]))
+    groups = ([
+        {'name': PROXY, 'type': 'select', 'proxies': [AUTO, FALLBACK, *region_names, *names, 'DIRECT']},
+        dict(name=AUTO, type='url-test', tolerance=50, proxies=names, **probe),
+        dict(name=FALLBACK, type='fallback', proxies=names, **probe),
+        {'name': AI, 'type': 'select', 'proxies': choose(*ai_first, PROXY)},
+        {'name': MEDIA, 'type': 'select', 'proxies': choose(PROXY)},
+        {'name': TELEGRAM, 'type': 'select', 'proxies': choose(PROXY)},
+        {'name': MICROSOFT, 'type': 'select', 'proxies': ['DIRECT', PROXY]},
+        {'name': APPLE, 'type': 'select', 'proxies': ['DIRECT', PROXY]},
+        {'name': ADS, 'type': 'select', 'proxies': ['REJECT', 'DIRECT']},
+        {'name': FINAL, 'type': 'select', 'proxies': [PROXY, 'DIRECT']},
+    ] + regional + account_groups(usage))
+    rules = service_rules(service) + [
+        'RULE-SET,private_domain,DIRECT',
+        'RULE-SET,ads,' + ADS,
+        'RULE-SET,ai,' + AI,
+        *('RULE-SET,' + n + ',' + MEDIA for n in ('youtube', 'netflix', 'disney', 'spotify', 'tiktok')),
+        'RULE-SET,telegram,' + TELEGRAM,
+        'RULE-SET,github,' + PROXY,
+        'RULE-SET,google,' + PROXY,
+        'RULE-SET,onedrive,' + MICROSOFT,
+        'RULE-SET,microsoft,' + MICROSOFT,
+        'RULE-SET,apple_cn,' + APPLE,
+        'RULE-SET,games_cn,DIRECT',
+        'RULE-SET,proxy_domain,' + PROXY,
+        'RULE-SET,cn_domain,DIRECT',
+        'RULE-SET,private_ip,DIRECT,no-resolve',
+        'RULE-SET,telegram_ip,' + TELEGRAM + ',no-resolve',
+        'RULE-SET,netflix_ip,' + MEDIA + ',no-resolve',
+        'RULE-SET,google_ip,' + PROXY + ',no-resolve',
+        # Resolved with domestic DoH so unlisted Chinese sites still go direct.
+        'RULE-SET,cn_ip,DIRECT',
+        'MATCH,' + FINAL,
+    ]
+    return yaml.dump({'mixed-port': 7890, 'allow-lan': False,
+        'mode': 'rule', 'log-level': 'warning', 'ipv6': False,
+        'unified-delay': True, 'tcp-concurrent': True,
+        'profile': {'store-selected': True, 'store-fake-ip': True},
+        'sniffer': {'enable': True, 'force-dns-mapping': True, 'parse-pure-ip': True,
+                    'sniff': {'HTTP': {'ports': [80, '8080-8880'], 'override-destination': True},
+                              'TLS': {'ports': [443, 8443]}, 'QUIC': {'ports': [443, 8443]}},
+                    'skip-domain': ['Mijia Cloud', '+.push.apple.com', 'dlg.io.mi.com']},
         'dns': {'enable': True, 'ipv6': False, 'enhanced-mode': 'fake-ip',
-                'fake-ip-range': '198.18.0.1/16',
-                'fake-ip-filter': ['*.lan', '*.local', 'localhost', '*.msftconnecttest.com', '*.msftncsi.com'],
-                'respect-rules': True,
-                'default-nameserver': ['223.5.5.5', '119.29.29.29'],
-                'proxy-server-nameserver': ['223.5.5.5', '119.29.29.29'],
-                'nameserver': ['https://1.1.1.1/dns-query', 'https://8.8.8.8/dns-query'],
-                'nameserver-policy': {'rule-set:cn_domain': ['https://dns.alidns.com/dns-query', 'https://doh.pub/dns-query'],
-                                      'rule-set:private_domain': ['system']}},
+                'fake-ip-range': '198.18.0.1/16', 'fake-ip-filter': FAKE_IP_FILTER,
+                'default-nameserver': BOOTSTRAP_DNS,
+                'nameserver': DOMESTIC_DOH,
+                'proxy-server-nameserver': DOMESTIC_DOH},
         'proxies': proxies,
-        'proxy-groups': [{'name': 'Jamie-Node', 'type': 'select', 'proxies': ['自动选择'] + names},
-            {'name': '自动选择', 'type': 'url-test', 'proxies': names,
-             'url': service['probe_url'], 'interval': 300, 'tolerance': 50}] + account_groups(usage),
+        'proxy-groups': groups,
         'rule-providers': rule_providers(),
-        'rules': direct_rules + ['IP-CIDR,223.5.5.5/32,DIRECT,no-resolve',
-                  'IP-CIDR,119.29.29.29/32,DIRECT,no-resolve',
-                  'DOMAIN,dns.alidns.com,DIRECT', 'DOMAIN,doh.pub,DIRECT',
-                  'IP-CIDR,1.1.1.1/32,Jamie-Node,no-resolve',
-                  'IP-CIDR,8.8.8.8/32,Jamie-Node,no-resolve',
-                  'DOMAIN-SUFFIX,lan,DIRECT', 'DOMAIN-SUFFIX,local,DIRECT',
-                  'DOMAIN,localhost,DIRECT',
-                  'IP-CIDR,127.0.0.0/8,DIRECT,no-resolve',
-                  'IP-CIDR,10.0.0.0/8,DIRECT,no-resolve',
-                  'IP-CIDR,172.16.0.0/12,DIRECT,no-resolve',
-                  'IP-CIDR,192.168.0.0/16,DIRECT,no-resolve',
-                  'IP-CIDR,169.254.0.0/16,DIRECT,no-resolve',
-                  'RULE-SET,private_domain,DIRECT',
-                  'RULE-SET,proxy_domain,Jamie-Node',
-                  'RULE-SET,cn_domain,DIRECT',
-                  'RULE-SET,cn_ip,DIRECT,no-resolve', 'MATCH,Jamie-Node']},
-        allow_unicode=True, sort_keys=False).encode()
+        'rules': rules},
+        Dumper=PlainDumper, allow_unicode=True, sort_keys=False).encode()
+
+ROCKET_RULES = 'https://testingcf.jsdelivr.net/gh/blackmatrix7/ios_rule_script@master/rule/Shadowrocket/'
+
+def shadowrocket_config(raw, update_url):
+    """Routing profile for Shadowrocket; nodes come from the separately imported subscription."""
+    service = service_settings()
+    _, regions, _ = collect_proxies(raw)
+    probe = 'url=' + service['probe_url'] + ',interval=600,tolerance=50,timeout=5'
+    groups = region_groups(regions)
+    region_names = [g for g, _ in groups]
+    ai_first = [g for g, r in groups if r in AI_REGIONS] or region_names
+    every = 'policy-regex-filter=.*'
+    pick = lambda *head: ','.join(dict.fromkeys([*head, *region_names]))
+    lines = [
+        '# ' + service['title'] + ' 小火箭分流配置：节点来自订阅，本配置只负责分流。',
+        '[General]',
+        'bypass-system = true',
+        'skip-proxy = 192.168.0.0/16, 10.0.0.0/8, 172.16.0.0/12, 100.64.0.0/10, 127.0.0.1, localhost, *.local, captive.apple.com',
+        'tun-excluded-routes = 10.0.0.0/8, 100.64.0.0/10, 127.0.0.0/8, 169.254.0.0/16, 172.16.0.0/12, 192.0.0.0/24, 192.0.2.0/24, 192.88.99.0/24, 192.168.0.0/16, 198.51.100.0/24, 203.0.113.0/24, 224.0.0.0/4, 255.255.255.255/32, 239.255.255.250/32',
+        'dns-server = ' + ', '.join(DOMESTIC_DOH),
+        'fallback-dns-server = system',
+        'ipv6 = false',
+        'prefer-ipv6 = false',
+        'dns-direct-system = false',
+        'icmp-auto-reply = true',
+        'always-reject-url-rewrite = false',
+        'private-ip-answer = true',
+        'dns-direct-fallback-proxy = true',
+        'udp-policy-not-supported-behaviour = REJECT',
+        'update-url = ' + update_url,
+        '',
+        '[Proxy Group]',
+        f'{PROXY} = select,' + ','.join([AUTO, FALLBACK, *region_names, every]),
+        f'{AUTO} = url-test,{probe},{every}',
+        f'{FALLBACK} = fallback,{probe},{every}',
+        f'{AI} = select,{pick(*ai_first, PROXY)}',
+        f'{MEDIA} = select,{pick(PROXY)}',
+        f'{TELEGRAM} = select,{pick(PROXY)}',
+        f'{MICROSOFT} = select,DIRECT,{PROXY}',
+        f'{APPLE} = select,DIRECT,{PROXY}',
+        f'{ADS} = select,REJECT,DIRECT',
+        f'{FINAL} = select,{PROXY},DIRECT',
+        *(f'{group} = url-test,{probe},policy-regex-filter={re.escape(region)}' for group, region in groups),
+        '',
+        '[Rule]',
+        *service_rules(service),
+        'RULE-SET,' + ROCKET_RULES + 'Lan/Lan.list,DIRECT',
+        'RULE-SET,' + ROCKET_RULES + 'AdvertisingLite/AdvertisingLite.list,' + ADS,
+        *('RULE-SET,' + ROCKET_RULES + n + '.list,' + AI for n in ('OpenAI/OpenAI', 'Claude/Claude', 'Gemini/Gemini')),
+        *(f'DOMAIN-SUFFIX,{d},{AI}' for d in ('claudeusercontent.com', 'clau.de', 'perplexity.ai', 'x.ai', 'grok.com')),
+        *('RULE-SET,' + ROCKET_RULES + n + '.list,' + MEDIA
+          for n in ('YouTube/YouTube', 'Netflix/Netflix', 'Disney/Disney', 'Spotify/Spotify', 'TikTok/TikTok')),
+        'RULE-SET,' + ROCKET_RULES + 'Telegram/Telegram.list,' + TELEGRAM,
+        'RULE-SET,' + ROCKET_RULES + 'GitHub/GitHub.list,' + PROXY,
+        'RULE-SET,' + ROCKET_RULES + 'Google/Google.list,' + PROXY,
+        'RULE-SET,' + ROCKET_RULES + 'Microsoft/Microsoft.list,' + MICROSOFT,
+        'RULE-SET,' + ROCKET_RULES + 'Apple/Apple.list,' + APPLE,
+        'RULE-SET,' + ROCKET_RULES + 'China/China_Domain.list,DIRECT',
+        'GEOIP,LAN,DIRECT',
+        'GEOIP,CN,DIRECT',
+        'FINAL,' + FINAL,
+        '',
+        '[Host]',
+        'localhost = 127.0.0.1',
+        '',
+        '[URL Rewrite]',
+        r'^https?://(www.)?g\.cn https://www.google.com 302',
+        r'^https?://(www.)?google\.cn https://www.google.com 302',
+    ]
+    return ('\n'.join(lines) + '\n').encode()
 
 def choose_format(path, query, agent, accept):
     requested = query.get('format', ['auto'])
-    if len(requested) != 1 or requested[0] not in ('auto', 'clash', 'shadowrocket', 'base64', 'html'):
+    if len(requested) != 1 or requested[0] not in ('auto', 'clash', 'shadowrocket', 'shadowrocket-conf', 'base64', 'html'):
         raise ValueError('Unsupported format')
     if requested[0] != 'auto':
-        return 'base64' if requested[0] == 'shadowrocket' else requested[0]
+        return {'shadowrocket': 'base64', 'shadowrocket-conf': 'conf'}.get(requested[0], requested[0])
     if path.startswith('/clash/'):
         return 'clash'  # Existing subscriptions retain their old behavior.
     ua = agent.lower()
@@ -176,8 +341,9 @@ def landing_page(sid, usage):
 <h1>{html.escape(service['title'])}</h1><p>将下面同一个链接粘贴到客户端的“添加订阅”。请勿公开分享。</p>'''
         + '<input readonly style="width:100%;padding:10px;box-sizing:border-box" value="' + safe + '">'
         + status + '<h2>手动选择格式</h2><ul><li><a href="' + safe + '?format=clash">Clash Verge / Mihomo YAML</a></li>'
-        + '<li><a href="' + safe + '?format=shadowrocket">小火箭 / 通用节点订阅</a></li></ul>'
-        + '<p>Clash 格式包含分流规则。小火箭通用订阅只更新节点，分流规则使用小火箭当前配置，不会自动覆盖。</p>'
+        + '<li><a href="' + safe + '?format=shadowrocket">小火箭 / 通用节点订阅</a></li>'
+        + '<li><a href="' + safe + '?format=shadowrocket-conf">小火箭分流配置</a></li></ul>'
+        + '<p>Clash 格式自带分流。小火箭需同时导入节点订阅和分流配置，并在「配置」页使用该配置。</p>'
         + '<p>需要支持 HY2 和 VLESS REALITY 的客户端。HY2 节点使用自签证书，客户端必须识别并校验证书指纹 pinSHA256；'
           '不能删除指纹后只开启跳过验证。小火箭手机端证书校验尚待实测。原生 sing-box / Surge 暂未适配。</p>'
         + '<p>数据随订阅更新刷新，不是实时计量。</p></body></html>').encode()
@@ -218,14 +384,19 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     result = convert(raw, usage)
                 elif fmt == 'base64':
                     result = native_subscription(raw)
+                elif fmt == 'conf':
+                    result = shadowrocket_config(
+                        raw, service['origin'].rstrip('/') + '/sub/' + match[1] + '?format=shadowrocket-conf')
                 else:
                     native_subscription(raw)  # Validate before showing a usable subscription page.
                     result = landing_page(match[1], usage)
             self.send_response(200)
             self.send_header('Content-Type', {'clash': 'application/yaml; charset=utf-8',
-                'base64': 'text/plain; charset=utf-8', 'html': 'text/html; charset=utf-8'}[fmt])
+                'base64': 'text/plain; charset=utf-8', 'conf': 'text/plain; charset=utf-8',
+                'html': 'text/html; charset=utf-8'}[fmt])
             if fmt != 'html':
-                self.send_header('Content-Disposition', 'attachment; filename=' + service['title'])
+                self.send_header('Content-Disposition', 'attachment; filename=' + service['title']
+                                 + ('.conf' if fmt == 'conf' else ''))
             self.send_header('Vary', 'User-Agent, Accept')
             self.send_header('Referrer-Policy', 'no-referrer')
             self.send_header('X-Content-Type-Options', 'nosniff')

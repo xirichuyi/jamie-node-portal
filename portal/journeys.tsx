@@ -456,7 +456,7 @@ const clients = {
     client: 'Shadowrocket',
     url: 'https://apps.apple.com/app/shadowrocket/id932747118',
     install: '用你自己的 Apple 账号购买，部分商店地区不可下载。',
-    connect: '选一个地区开启连接，「全局路由」选「配置」。',
+    connect: '先导入分流配置并「使用配置」，再开启连接，「全局路由」选「配置」。',
   },
   android: {
     name: 'Android',
@@ -612,6 +612,17 @@ export function DeviceGuide({
                     <Copy size={16} />
                     复制链接
                   </Button>
+                  {selected === 'ios' && (
+                    <Button
+                      variant="outline"
+                      onClick={() => {
+                        window.location.href =
+                          'shadowrocket://config/add/' + importUrl.replace(/format=shadowrocket$/, 'format=shadowrocket-conf');
+                      }}
+                    >
+                      导入分流配置
+                    </Button>
+                  )}
                 </div>
               ) : (
                 <Button disabled={pending} onClick={() => navigate('home')}>
@@ -624,7 +635,7 @@ export function DeviceGuide({
                 <summary>没有自动打开客户端？</summary>
                 <p>
                   {selected === 'ios'
-                    ? '点击右上角「+」，选择 Subscribe，粘贴链接并保存。'
+                    ? '点击右上角「+」，选择 Subscribe，粘贴链接并保存。分流配置：「配置」页右上角「+」，粘贴同一链接并把末尾 format=shadowrocket 改为 format=shadowrocket-conf，下载后点它选「使用配置」。'
                     : '在客户端「订阅」或「配置」页新建 URL 配置，粘贴链接。'}
                 </p>
               </details>

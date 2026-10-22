@@ -46,6 +46,33 @@ class DynamicSubscriptionTests(unittest.TestCase):
             self.assertIn('IP-CIDR,8.8.4.4/32,DIRECT,no-resolve', clash['rules'])
             self.assertEqual(clash['proxy-groups'][1]['url'], 'https://probe.example.test/204')
 
+    def test_policy_groups_rules_and_shadowrocket_profile(self):
+        rows = [{'server': '8.8.4.1', 'port': 8443, 'name': '🇯🇵 日本 01', 'region': '日本'},
+                {'server': '8.8.4.2', 'port': 8443, 'name': '🇩🇪 德国 01', 'region': '德国'},
+                {'server': '8.8.4.3', 'port': 8443, 'name': '🇺🇸 美国 01', 'region': '美国'}]
+        raw = '\n'.join(f'hy2://secret@{r["server"]}:8443?pinSHA256=' + 'a' * 64 for r in rows).encode()
+        with patch.object(adapter, 'active_nodes', return_value=rows):
+            text = adapter.convert(raw).decode()
+            rocket = adapter.shadowrocket_config(raw, 'https://portal.example.test/sub/x').decode()
+        clash = yaml.safe_load(text)
+        self.assertNotIn('&id', text)
+        groups = {g['name']: g for g in clash['proxy-groups']}
+        # AI prefers US/Japan regions; region groups only hold their own nodes.
+        self.assertEqual(groups[adapter.AI]['proxies'][:2], ['🇺🇸 美国节点', '🇯🇵 日本节点'])
+        self.assertEqual(groups['🇩🇪 德国节点']['proxies'], ['🇩🇪 德国 01'])
+        used = {r.split(',')[1] for r in clash['rules'] if r.startswith('RULE-SET,')}
+        self.assertEqual(used, set(clash['rule-providers']))
+        for rule in clash['rules']:
+            target = rule.split(',')[-2 if rule.endswith('no-resolve') else -1]
+            self.assertTrue(target in groups or target in ('DIRECT', 'REJECT'), rule)
+        self.assertEqual(clash['rules'][-1], 'MATCH,' + adapter.FINAL)
+        self.assertNotIn('no-resolve', next(r for r in clash['rules'] if 'cn_ip' in r))
+        self.assertIn('🇺🇸 美国节点 = url-test', rocket)
+        self.assertIn('policy-regex-filter=德国', rocket)
+        self.assertIn('FINAL,' + adapter.FINAL, rocket)
+        self.assertNotIn('secret', rocket)
+        self.assertEqual(adapter.choose_format('/sub/x', {'format': ['shadowrocket-conf']}, '', ''), 'conf')
+
     def test_unpublished_node_is_not_exposed(self):
         raw = ('hy2://secret@8.8.4.4:8443?pinSHA256=' + 'a' * 64).encode()
         with patch.object(adapter, 'active_nodes', return_value=[]):

@@ -345,6 +345,8 @@ export function Connection({
     u.searchParams.set('format', format);
     return u.href;
   };
+  // Shadowrocket keeps nodes (subscription) and routing (remote config) separately.
+  const rocketConfig = () => 'shadowrocket://config/add/' + forced('shadowrocket-conf');
   const launch = (client: string) => {
     window.location.href =
       client === 'ios'
@@ -374,6 +376,11 @@ export function Connection({
                   ? '安卓 Clash'
                   : ' Clash Verge'}
             </Button>
+            {platform === 'ios' && (
+              <Button variant="outline" onClick={() => (window.location.href = rocketConfig())}>
+                导入分流配置
+              </Button>
+            )}
             <Button
               variant="outline"
               onClick={() =>
@@ -420,6 +427,9 @@ export function Connection({
                 </Button>
                 <Button variant="outline" onClick={() => launch('ios')}>
                   小火箭
+                </Button>
+                <Button variant="outline" onClick={() => (window.location.href = rocketConfig())}>
+                  小火箭分流
                 </Button>
                 <Button variant="outline" onClick={() => launch('android')}>
                   Android
