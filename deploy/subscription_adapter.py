@@ -23,22 +23,16 @@ def node_rows():
 def node_names():
     return {key: row['name'] for key, row in node_rows().items()}
 
-# Policy group names shared by the Clash and Shadowrocket profiles.
-PROXY, AUTO, FALLBACK = '🚀 节点选择', '♻️ 自动选择', '🔯 故障转移'
-AI, MEDIA, TELEGRAM = '🤖 AI 服务', '📺 流媒体', '📲 Telegram'
-MICROSOFT, APPLE, ADS, FINAL = 'Ⓜ️ 微软服务', '🍎 苹果服务', '🛑 广告拦截', '🐟 漏网之鱼'
-# AI services refuse many regions; these are tried first for the AI group.
+# Only two visible, text-only groups. Routing runs from the rules; services that never
+# need a manual switch point straight at their outbound instead of owning a group.
+PROXY, AUTO, AI = '节点选择', '自动选择', 'AI 服务'
+MEDIA = TELEGRAM = FINAL = PROXY
+MICROSOFT = APPLE = 'DIRECT'
+ADS = 'REJECT'
+# AI services refuse many regions; the hidden AI group tests only these regions' nodes.
 AI_REGIONS = ('美国', '日本', '新加坡')
 DOMESTIC_DOH = ['https://dns.alidns.com/dns-query', 'https://doh.pub/dns-query']
 BOOTSTRAP_DNS = ['223.5.5.5', '119.29.29.29']
-
-def region_groups(regions):
-    """[(group name, region)] in catalog order, AI-friendly regions first."""
-    ordered = sorted(regions, key=lambda r: AI_REGIONS.index(r[0]) if r[0] in AI_REGIONS else len(AI_REGIONS))
-    return [(flag + ' ' + region + '节点' if flag else region + '节点', region) for region, flag in ordered]
-
-def flag_of(name):
-    return name[:2] if len(name) >= 2 and all(0x1F1E6 <= ord(c) <= 0x1F1FF for c in name[:2]) else ''
 
 def account_groups(usage):
     fields = {}
@@ -82,7 +76,7 @@ ROUTES = [
      ['deepseek.com', 'doubao.com', 'kimi.com', 'moonshot.cn', 'chatglm.cn', 'zhipuai.cn', 'hailuoai.com',
       'yuanbao.tencent.com', 'tongyi.aliyun.com', 'yiyan.baidu.com']),
     ('BT 下载 tracker：直连', 'DIRECT', ['geosite/tracker'], [], []),
-    ('广告与追踪：默认拦截，误伤时可在「广告拦截」组改为直连', ADS,
+    ('广告与追踪：拦截', ADS,
      ['geosite/category-ads-all'], ['AdvertisingLite/AdvertisingLite', 'AdvertisingLite/AdvertisingLite_Domain'], []),
     # Adapted from the hand-maintained list in Johnshall/Shadowrocket-ADBlock-Rules-Forever:
     # LinkedIn and Bing sit inside the Microsoft lists that are otherwise direct.
@@ -90,22 +84,22 @@ ROUTES = [
      ['googleapis.cn', 'xn--ngstr-lra8j.com', 'apple.news', 'testflight.apple.com',
       'linkedin.com', 'linkedin.cn', 'licdn.com', 'bing.com', 'location.microsoft.com', 'hoyolab.com',
       'dnsleaktest.com', 'ipleak.net', 'browserleaks.com', 'browserleaks.org']),
-    ('海外 AI：OpenAI、Claude、Gemini、Copilot 等，限制地区较多，单独选节点', AI, ['geosite/category-ai-!cn'],
+    ('海外 AI：OpenAI、Claude、Gemini、Copilot 等，限制地区较多，自动用美国/日本/新加坡节点', AI, ['geosite/category-ai-!cn'],
      ['OpenAI/OpenAI', 'Claude/Claude', 'Gemini/Gemini', 'Copilot/Copilot'],
      ['anthropic.com', 'claude.ai', 'claudeusercontent.com', 'clau.de', 'openai.com', 'chatgpt.com',
       'oaistatic.com', 'oaiusercontent.com', 'gemini.google.com', 'copilot.microsoft.com', 'perplexity.ai',
       'x.ai', 'grok.com', 'cursor.com', 'cursor.sh', 'cursorapi.com', 'openrouter.ai', 'poe.com',
       'huggingface.co', 'character.ai', 'midjourney.com']),
-    ('流媒体', MEDIA,
+    ('流媒体：代理', MEDIA,
      ['geosite/youtube', 'geosite/netflix', 'geosite/disney', 'geosite/spotify', 'geosite/tiktok', 'geoip/netflix'],
      ['YouTube/YouTube', 'Netflix/Netflix', 'Disney/Disney', 'Spotify/Spotify', 'TikTok/TikTok'], []),
-    ('Telegram', TELEGRAM, ['geosite/telegram', 'geoip/telegram'], ['Telegram/Telegram'], []),
+    ('Telegram：代理', TELEGRAM, ['geosite/telegram', 'geoip/telegram'], ['Telegram/Telegram'], []),
     ('常用海外服务：代理', PROXY, ['geosite/github', 'geosite/google', 'geoip/google'],
      ['GitHub/GitHub', 'Google/Google', 'Twitter/Twitter', 'Facebook/Facebook', 'Instagram/Instagram',
       'Whatsapp/Whatsapp', 'Discord/Discord', 'Reddit/Reddit', 'Wikipedia/Wikipedia', 'Docker/Docker',
       'PayPal/PayPal', 'Steam/Steam'], []),
-    ('微软：国内可直连，默认直连', MICROSOFT, ['geosite/onedrive', 'geosite/microsoft'], ['Microsoft/Microsoft'], []),
-    ('苹果：iCloud、App Store 等国内可直连，默认直连', APPLE, ['geosite/apple'], ['Apple/Apple', 'Apple/Apple_Domain'], []),
+    ('微软：国内可直连', MICROSOFT, ['geosite/onedrive', 'geosite/microsoft'], ['Microsoft/Microsoft'], []),
+    ('苹果：iCloud、App Store 等国内可直连', APPLE, ['geosite/apple'], ['Apple/Apple', 'Apple/Apple_Domain'], []),
     ('其他海外网站：代理', PROXY, ['geosite/geolocation-!cn'], ['Global/Global', 'Global/Global_Domain'], []),
     ('国内网站：直连', 'DIRECT', ['geosite/cn'], ['ChinaMax/ChinaMax', 'ChinaMax/ChinaMax_Domain'], []),
 ]
@@ -148,7 +142,7 @@ def routing_sections(service, client):
             sections.append((comment, rules))
     sections.append(('国内 IP：解析域名后判断，未收录的国内网站也能直连',
                      ['RULE-SET,cn_ip,DIRECT' if client == 'clash' else 'GEOIP,CN,DIRECT']))
-    sections.append(('以上都没匹配：走「漏网之鱼」，默认代理', [('MATCH,' if client == 'clash' else 'FINAL,') + FINAL]))
+    sections.append(('以上都没匹配：走代理', [('MATCH,' if client == 'clash' else 'FINAL,') + FINAL]))
     return sections
 
 def service_rules(service):
@@ -170,7 +164,7 @@ FAKE_IP_FILTER = ['rule-set:private', '+.lan', '+.local', '+.localdomain', '+.ho
 
 def collect_proxies(body):
     rows = node_rows()
-    proxies, regions = [], []
+    proxies = []
     for index, line in enumerate(decode_links(body), 1):
         u = urllib.parse.urlsplit(line.strip())
         row = rows.get((u.hostname, u.port or 443))
@@ -199,12 +193,9 @@ def collect_proxies(body):
         if 'mport' in q:
             p['ports'] = q['mport'][0]
         proxies.append(p)
-        region = row.get('region') or ''
-        if region and region not in [r for r, _ in regions]:
-            regions.append((region, flag_of(row['name'])))
     if not proxies:
         raise ValueError('No enabled proxies')
-    return proxies, regions, {p['name']: (rows.get((p['server'], p['port'])) or {}).get('region') for p in proxies}
+    return proxies, {p['name']: (rows.get((p['server'], p['port'])) or {}).get('region') for p in proxies}
 
 class PlainDumper(yaml.SafeDumper):
     """No &anchors/*aliases: some clients' editors show them literally."""
@@ -215,27 +206,16 @@ def convert(body, usage=None, client='clash'):
     """Clash YAML. For Shadowrocket (which imports Clash YAML as a config but cannot read
     mihomo .mrs sets) the same nodes and groups carry its own rule-list URLs instead."""
     service = service_settings()
-    proxies, regions, region_of = collect_proxies(body)
+    proxies, region_of = collect_proxies(body)
     names = [p['name'] for p in proxies]
     probe = {'url': service['probe_url'], 'interval': 300, 'lazy': True, 'timeout': 3000}
-    regional = [dict(name=group, type='url-test', tolerance=50,
-                     proxies=[n for n in names if region_of[n] == region], **probe)
-                for group, region in region_groups(regions)]
-    region_names = [g['name'] for g in regional]
-    ai_first = [g for g, r in region_groups(regions) if r in AI_REGIONS] or region_names
-    choose = lambda *head: list(dict.fromkeys([*head, *region_names, *names]))
-    groups = ([
-        {'name': PROXY, 'type': 'select', 'proxies': [AUTO, FALLBACK, *region_names, *names, 'DIRECT']},
+    ai_nodes = [n for n in names if region_of[n] in AI_REGIONS] or names
+    groups = [
+        {'name': PROXY, 'type': 'select', 'proxies': [AUTO, *names, 'DIRECT']},
         dict(name=AUTO, type='url-test', tolerance=50, proxies=names, **probe),
-        dict(name=FALLBACK, type='fallback', proxies=names, **probe),
-        {'name': AI, 'type': 'select', 'proxies': choose(*ai_first, PROXY)},
-        {'name': MEDIA, 'type': 'select', 'proxies': choose(PROXY)},
-        {'name': TELEGRAM, 'type': 'select', 'proxies': choose(PROXY)},
-        {'name': MICROSOFT, 'type': 'select', 'proxies': ['DIRECT', PROXY]},
-        {'name': APPLE, 'type': 'select', 'proxies': ['DIRECT', PROXY]},
-        {'name': ADS, 'type': 'select', 'proxies': ['REJECT', 'DIRECT']},
-        {'name': FINAL, 'type': 'select', 'proxies': [PROXY, 'DIRECT']},
-    ] + regional + account_groups(usage))
+        # Runs in the background: hidden from the Clash panel, never needs a manual pick.
+        dict(name=AI, type='url-test', tolerance=50, hidden=True, proxies=ai_nodes, **probe),
+    ] + account_groups(usage)
     if client == 'shadowrocket':
         head = yaml.dump({'mode': 'rule', 'ipv6': False,
             'dns': {'enable': True, 'nameserver': DOMESTIC_DOH},
@@ -272,13 +252,11 @@ def rule_lines(service, client):
 def shadowrocket_config(raw, update_url):
     """Routing profile for Shadowrocket; nodes come from the separately imported subscription."""
     service = service_settings()
-    _, regions, _ = collect_proxies(raw)
+    _, region_of = collect_proxies(raw)
     probe = 'url=' + service['probe_url'] + ',interval=600,tolerance=50,timeout=5'
-    groups = region_groups(regions)
-    region_names = [g for g, _ in groups]
-    ai_first = [g for g, r in groups if r in AI_REGIONS] or region_names
+    present = [r for r in AI_REGIONS if r in region_of.values()]
+    ai_filter = '|'.join(map(re.escape, present)) or '.*'
     every = 'policy-regex-filter=.*'
-    pick = lambda *head: ','.join(dict.fromkeys([*head, *region_names]))
     lines = [
         '# ' + service['title'] + ' 小火箭分流配置：节点来自订阅，本配置只负责分流。',
         '[General]',
@@ -298,17 +276,9 @@ def shadowrocket_config(raw, update_url):
         'update-url = ' + update_url,
         '',
         '[Proxy Group]',
-        f'{PROXY} = select,' + ','.join([AUTO, FALLBACK, *region_names, every]),
+        f'{PROXY} = select,{AUTO},{every}',
         f'{AUTO} = url-test,{probe},{every}',
-        f'{FALLBACK} = fallback,{probe},{every}',
-        f'{AI} = select,{pick(*ai_first, PROXY)}',
-        f'{MEDIA} = select,{pick(PROXY)}',
-        f'{TELEGRAM} = select,{pick(PROXY)}',
-        f'{MICROSOFT} = select,DIRECT,{PROXY}',
-        f'{APPLE} = select,DIRECT,{PROXY}',
-        f'{ADS} = select,REJECT,DIRECT',
-        f'{FINAL} = select,{PROXY},DIRECT',
-        *(f'{group} = url-test,{probe},policy-regex-filter={re.escape(region)}' for group, region in groups),
+        f'{AI} = url-test,{probe},policy-regex-filter={ai_filter}',
         '',
         '[Rule]',
         *(line for comment, rules in routing_sections(service, 'shadowrocket') for line in ['# ' + comment, *rules]),

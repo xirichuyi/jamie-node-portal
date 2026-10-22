@@ -101,7 +101,7 @@ with tempfile.TemporaryDirectory(prefix='jamie-client-qa-') as work:
         for name,p in proxies.items():
             if p['type'].lower() not in ('hysteria2','vless'):continue
             if name not in selected:continue
-            req=urllib.request.Request(f'http://127.0.0.1:{controller}/proxies/'+urllib.parse.quote('🚀 节点选择'),
+            req=urllib.request.Request(f'http://127.0.0.1:{controller}/proxies/'+urllib.parse.quote('节点选择'),
                 data=json.dumps({'name':name}).encode(),method='PUT',headers={'Content-Type':'application/json'})
             local.open(req,timeout=3).close()
             result=subprocess.run(['curl','-q','--silent','--show-error','--proxy',f'socks5h://127.0.0.1:{socks}','--noproxy','',

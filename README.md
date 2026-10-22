@@ -91,8 +91,8 @@ NAT 节点可用 `--host IP --ssh-port 端口 --ports 分配范围 --name 名称
   → 国内 AI → BT tracker → 广告 → 必须代理（LinkedIn、Bing、TestFlight 等，参考 Johnshall 手工清单）
   → 海外 AI → 流媒体 → Telegram → 常用海外服务 → 微软/苹果（默认直连）→ 其他海外 → 国内 → 国内 IP → 漏网之鱼。
   整体结构对照 Loyalsoldier/clash-rules 白名单模式：未命中规则时先按国内 IP 判断，其余走代理。
-- 策略组：节点选择、自动选择、故障转移、各地区自动测速组，以及 AI 服务（美国/日本/新加坡优先）、
-  流媒体、Telegram、微软、苹果、广告拦截（默认拒绝，可改直连）、漏网之鱼。
+- 策略组只有两个、纯文字：「节点选择」「自动选择」。分流由规则在后台完成：流媒体、Telegram 与未命中流量跟随节点选择，
+  苹果/微软直连，广告拒绝；「AI 服务」在美国/日本/新加坡节点间自动测速，Clash 中隐藏（小火箭不支持隐藏，会显示）。
 - Clash/Mihomo：fake-ip + 国内 DoH，开启嗅探；规则集经节点下载、每日更新。`mihomo -t` 校验及实际加载规则集已验证。
 - 小火箭可在「配置」页导入 Clash 链接（节点+规则一次带入），但读不了 `.mrs`：Clash 链接被小火箭请求时
   （UA 含 Shadowrocket，或 `?format=shadowrocket-yaml`）返回同样节点与策略组、规则改用 blackmatrix7 列表 URL 的 YAML。

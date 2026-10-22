@@ -1,3 +1,4 @@
+import re
 import base64
 import importlib.util
 from pathlib import Path
@@ -57,9 +58,12 @@ class DynamicSubscriptionTests(unittest.TestCase):
         clash = yaml.safe_load(text)
         self.assertNotIn('&id', text)
         groups = {g['name']: g for g in clash['proxy-groups']}
-        # AI prefers US/Japan regions; region groups only hold their own nodes.
-        self.assertEqual(groups[adapter.AI]['proxies'][:2], ['🇺🇸 美国节点', '🇯🇵 日本节点'])
-        self.assertEqual(groups['🇩🇪 德国节点']['proxies'], ['🇩🇪 德国 01'])
+        # Two visible text-only groups; the AI group runs hidden over AI-friendly regions.
+        visible = [g['name'] for g in clash['proxy-groups'] if not g.get('hidden') and not g['name'].startswith(('剩余', '有效期', '到期', '已到期'))]
+        self.assertEqual(visible, ['节点选择', '自动选择'])
+        self.assertTrue(groups['AI 服务']['hidden'])
+        self.assertEqual(groups['AI 服务']['proxies'], ['🇯🇵 日本 01', '🇺🇸 美国 01'])
+        self.assertFalse(re.search('[\U0001F300-\U0001FAFF]', ''.join(groups)))
         used = {r.split(',')[1] for r in clash['rules'] if r.startswith('RULE-SET,')}
         self.assertEqual(used, set(clash['rule-providers']))
         for rule in clash['rules']:
@@ -67,8 +71,8 @@ class DynamicSubscriptionTests(unittest.TestCase):
             self.assertTrue(target in groups or target in ('DIRECT', 'REJECT'), rule)
         self.assertEqual(clash['rules'][-1], 'MATCH,' + adapter.FINAL)
         self.assertNotIn('no-resolve', next(r for r in clash['rules'] if 'cn_ip' in r))
-        self.assertIn('🇺🇸 美国节点 = url-test', rocket)
-        self.assertIn('policy-regex-filter=德国', rocket)
+        self.assertIn('AI 服务 = url-test', rocket)
+        self.assertIn('policy-regex-filter=美国|日本', rocket)
         self.assertIn('FINAL,' + adapter.FINAL, rocket)
         self.assertNotIn('secret', rocket)
         self.assertEqual(adapter.choose_format('/sub/x', {'format': ['shadowrocket-conf']}, '', ''), 'conf')
