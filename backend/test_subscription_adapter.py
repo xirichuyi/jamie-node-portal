@@ -73,6 +73,22 @@ class DynamicSubscriptionTests(unittest.TestCase):
         self.assertNotIn('secret', rocket)
         self.assertEqual(adapter.choose_format('/sub/x', {'format': ['shadowrocket-conf']}, '', ''), 'conf')
 
+    def test_shadowrocket_gets_readable_rules_from_clash_link(self):
+        rows = [{'server': '8.8.4.1', 'port': 8443, 'name': '🇯🇵 日本 01', 'region': '日本'}]
+        raw = ('hy2://secret@8.8.4.1:8443?pinSHA256=' + 'a' * 64).encode()
+        with patch.object(adapter, 'active_nodes', return_value=rows):
+            rocket = yaml.safe_load(adapter.convert(raw, None, 'shadowrocket'))
+        self.assertEqual(rocket['proxies'][0]['type'], 'hysteria2')
+        self.assertNotIn('rule-providers', rocket)
+        self.assertFalse([r for r in rocket['rules'] if '.mrs' in r or 'PROCESS-NAME' in r])
+        self.assertTrue(any(r.startswith('RULE-SET,https://') for r in rocket['rules']))
+        self.assertEqual(rocket['rules'][-2:], ['GEOIP,CN,DIRECT', 'MATCH,' + adapter.FINAL])
+        pick = adapter.choose_format
+        self.assertEqual(pick('/sub/x', {'format': ['clash']}, 'Shadowrocket/2070 CFNetwork', ''), 'rocket-yaml')
+        self.assertEqual(pick('/clash/x', {}, 'Shadowrocket/2070', ''), 'rocket-yaml')
+        self.assertEqual(pick('/sub/x', {'format': ['clash']}, 'clash-verge/v2', ''), 'clash')
+        self.assertEqual(pick('/sub/x', {}, 'Shadowrocket/2070', ''), 'base64')
+
     def test_unpublished_node_is_not_exposed(self):
         raw = ('hy2://secret@8.8.4.4:8443?pinSHA256=' + 'a' * 64).encode()
         with patch.object(adapter, 'active_nodes', return_value=[]):

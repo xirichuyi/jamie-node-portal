@@ -206,7 +206,9 @@ class PlainDumper(yaml.SafeDumper):
     def ignore_aliases(self, data):
         return True
 
-def convert(body, usage=None):
+def convert(body, usage=None, client='clash'):
+    """Clash YAML. For Shadowrocket (which imports Clash YAML as a config but cannot read
+    mihomo .mrs sets) the same nodes and groups carry its own rule-list URLs instead."""
     service = service_settings()
     proxies, regions, region_of = collect_proxies(body)
     names = [p['name'] for p in proxies]
@@ -229,6 +231,12 @@ def convert(body, usage=None):
         {'name': ADS, 'type': 'select', 'proxies': ['REJECT', 'DIRECT']},
         {'name': FINAL, 'type': 'select', 'proxies': [PROXY, 'DIRECT']},
     ] + regional + account_groups(usage))
+    if client == 'shadowrocket':
+        head = yaml.dump({'mode': 'rule', 'ipv6': False,
+            'dns': {'enable': True, 'nameserver': DOMESTIC_DOH},
+            'proxies': proxies, 'proxy-groups': groups},
+            Dumper=PlainDumper, allow_unicode=True, sort_keys=False)
+        return (head + rule_lines(service, client)).encode()
     head = yaml.dump({'mixed-port': 7890, 'allow-lan': False,
         'mode': 'rule', 'log-level': 'warning', 'ipv6': False,
         'unified-delay': True, 'tcp-concurrent': True,
@@ -246,11 +254,15 @@ def convert(body, usage=None):
         'proxy-groups': groups,
         'rule-providers': rule_providers()},
         Dumper=PlainDumper, allow_unicode=True, sort_keys=False)
-    # Rules are written by hand so each section keeps its comment in the profile.
+    return (head + rule_lines(service, client)).encode()
+
+def rule_lines(service, client):
+    """YAML rules written by hand so each section keeps its comment in the profile."""
     lines = ['rules:']
-    for comment, rules in routing_sections(service, 'clash'):
-        lines += ['# ' + comment] + ['- ' + json.dumps(rule, ensure_ascii=False) for rule in rules]
-    return (head + '\n'.join(lines) + '\n').encode()
+    for comment, rules in routing_sections(service, client):
+        lines += ['# ' + comment] + ['- ' + json.dumps(re.sub('^FINAL,', 'MATCH,', rule), ensure_ascii=False)
+                                     for rule in rules]
+    return '\n'.join(lines) + '\n'
 
 def shadowrocket_config(raw, update_url):
     """Routing profile for Shadowrocket; nodes come from the separately imported subscription."""
@@ -307,12 +319,17 @@ def shadowrocket_config(raw, update_url):
 
 def choose_format(path, query, agent, accept):
     requested = query.get('format', ['auto'])
-    if len(requested) != 1 or requested[0] not in ('auto', 'clash', 'shadowrocket', 'shadowrocket-conf', 'base64', 'html'):
+    if len(requested) != 1 or requested[0] not in ('auto', 'clash', 'shadowrocket', 'shadowrocket-conf',
+                                                   'shadowrocket-yaml', 'base64', 'html'):
         raise ValueError('Unsupported format')
+    rocket = 'shadowrocket' in agent.lower()
     if requested[0] != 'auto':
-        return {'shadowrocket': 'base64', 'shadowrocket-conf': 'conf'}.get(requested[0], requested[0])
+        if requested[0] == 'clash' and rocket:
+            return 'rocket-yaml'  # A Clash link added under Shadowrocket's 配置 tab.
+        return {'shadowrocket': 'base64', 'shadowrocket-conf': 'conf',
+                'shadowrocket-yaml': 'rocket-yaml'}.get(requested[0], requested[0])
     if path.startswith('/clash/'):
-        return 'clash'  # Existing subscriptions retain their old behavior.
+        return 'rocket-yaml' if rocket else 'clash'  # Existing subscriptions retain their old behavior.
     ua = agent.lower()
     if 'shadowrocket' in ua:
         return 'base64'
@@ -396,6 +413,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     usage = portal_usage
                 if fmt == 'clash':
                     result = convert(raw, usage)
+                elif fmt == 'rocket-yaml':
+                    result = convert(raw, usage, 'shadowrocket')
                 elif fmt == 'base64':
                     result = native_subscription(raw)
                 elif fmt == 'conf':
@@ -406,6 +425,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     result = landing_page(match[1], usage)
             self.send_response(200)
             self.send_header('Content-Type', {'clash': 'application/yaml; charset=utf-8',
+                'rocket-yaml': 'application/yaml; charset=utf-8',
                 'base64': 'text/plain; charset=utf-8', 'conf': 'text/plain; charset=utf-8',
                 'html': 'text/html; charset=utf-8'}[fmt])
             if fmt != 'html':
