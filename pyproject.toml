@@ -1,13 +1,15 @@
 [tool.ruff]
 target-version = "py311"
 line-length = 100
-include = ["backend/**/*.py", "deploy/benchmark_backend.py", "deploy/onboard.py", "deploy/nodes/**/*.py"]
+include = ["backend/**/*.py", "tools/**/*.py", "deploy/onboard.py", "deploy/nodes/**/*.py"]
 
 [tool.ruff.lint]
 select = ["E4", "E7", "E9", "F"]
 
 [tool.ruff.lint.per-file-ignores]
-"deploy/benchmark_backend.py" = ["E402"] # Adds the backend source directory.
+"tools/benchmark_backend.py" = ["E402"] # Adds the backend source directory.
+"deploy/nodes/provision_probe.py" = ["E402"] # Loads the deployed backend on Noether.
+"deploy/nodes/switch_node_tcp.py" = ["E402"] # Loads the deployed backend on Noether.
 
 [tool.ruff.format]
 quote-style = "single"

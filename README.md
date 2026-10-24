@@ -20,7 +20,9 @@
 | `backend/admin_users.py`、`operations.py`、`features.py` | 管理查询、运行诊断、自助功能 |
 | `backend/payments.py`、`payment_gateway.py`、`routes_payments.py` | USDT 订单、网关查单、回调验签与事务发货 |
 | `deploy/subscription_adapter.py` | 订阅格式及额度元数据适配，随版本部署 |
-| `deploy/` | 部署、备份、探测、节点接入和验收工具 |
+| `deploy/` | 部署、备份和线上运行文件 |
+| `deploy/nodes/` | 统一节点接入实现及专用维护工具；入口 `deploy/onboard.py` |
+| `tools/` | 手动客户端验收与本地性能工具 |
 
 节点按运维流程登记，不修改节点数组/IP 常量。共享业务操作复用同一事务入口，不为每条路由复制实现。
 新增节点统一运行 `npm run node:add`，实现集中在 `deploy/nodes/`：自动检查系统、内存、端口和已有安装，完成注册、订阅配置和目标节点实连验证。
@@ -180,7 +182,7 @@ npm run build
 也可运行 `npm run verify` 一次完成以上检查与构建。
 
 Python 检查使用固定版本 Ruff 与 Pylint 重复代码检测，只在开发环境运行。
-单测使用隔离数据库/模拟面板；`python3 deploy/benchmark_backend.py` 使用合成数据对比查询性能。
+单测使用隔离数据库/模拟面板；`python3 tools/benchmark_backend.py` 使用合成数据对比查询性能。
 `/layout-review.html` 是本地界面样例，不进入生产构建，也不代表真实账号验收。
 已移除旧 Next/Worker/D1 脚手架与未引用组件。前端仅通过 Vite 在本地构建，
 线上由 Nginx 提供静态文件并反代 Python API，不运行 Vite 或 Node 服务。
@@ -225,8 +227,8 @@ Nginx、门户配置及目录元数据，不是改一个字段即可迁移。
 部署保留已有配置/账号，备份并切换版本，同时安装订阅适配器。
 
 ```sh
-python3 deploy/verify_clients.py
-python3 deploy/verify_clients.py --metadata-only
+python3 tools/verify_clients.py
+python3 tools/verify_clients.py --metadata-only
 ssh Noether systemctl start jamie-portal-probe.service
 ```
 

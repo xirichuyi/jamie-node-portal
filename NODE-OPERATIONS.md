@@ -214,10 +214,11 @@ and entitlement are verified. `ready_revision` does not advance `synced_revision
 remaining nodes keep retrying. Credential rotation remains blocked until full sync.
 Retries avoid rewriting unchanged master entitlements so reconciliation can finish.
 
-Acceptance:
+Optional fleet acceptance (not part of node onboarding; unrelated offline nodes
+must not block adding a node):
 
 ```sh
-python3 deploy/verify_clients.py
+python3 tools/verify_clients.py
 ssh Noether systemctl start jamie-portal-probe.service
 ```
 
@@ -454,10 +455,28 @@ Customer updates target active inbound IDs only. Retired nodes are excluded from
 publication and sync completion. This cannot erase credentials on the sold machine;
 credential rotation is a separate operation requiring client subscription updates.
 
-The one-time `migrate_node_catalog.py` contains the historical six-node migration;
-it refuses to overwrite an existing catalog. Retired `attach_sanjose.py`,
-`expand_nodes.py`, `prepare_sanjose.sh`, `verify_live.py`, and `verify_features.py`
-have been removed; their historical implementations remain in Git only.
+Node implementation and maintenance helpers live together in `deploy/nodes/`.
+Normal additions, including extra protocols, use `npm run node:add` only.
+Two exceptional maintenance helpers run as root on Noether with the deployed
+backend at `/opt/jamie-portal/current/backend`; they are not automatically deployed
+or run during onboarding:
+
+- `provision_probe.py` initializes or verifies the dedicated monitoring identity.
+  Existing identity ownership must match; it does not rotate customer credentials.
+- `switch_node_tcp.py INBOUND_ID PORT` converts an existing IPv4 inbound in place
+  to REALITY. This is a manual transport migration, not the additive protocol flow.
+  It keeps private backups and probes before catalog publication; a failed probe
+  can leave the panel changed and requires inspection of that backup.
+
+Completed metadata patches (`update_client_metadata.py`, `update_cycle_metadata.py`),
+the initial catalog and billing migrations (`migrate_node_catalog.py`,
+`enable_package_billing.py`), and obsolete live bootstrap acceptance scripts
+(`verify_billing_nodes.py`, `verify_package_flow.py`) have been removed.
+The latter assumed HY2-only fleet configuration or registration without email
+verification; current billing and registration regression tests use isolated data
+in `backend/test_*.py`. Earlier retired scripts (`attach_sanjose.py`,
+`expand_nodes.py`, `prepare_sanjose.sh`, `verify_live.py`, `verify_features.py`)
+also remain in Git history only. Do not rerun historical migrations.
 
 ## Quality checks and remaining work
 

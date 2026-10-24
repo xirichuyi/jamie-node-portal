@@ -10,7 +10,7 @@
     "dev": "vite --config vite.portal.config.ts",
     "build": "vite build --config vite.portal.config.ts",
     "check": "tsc --noEmit",
-    "check:python": "uvx ruff@0.16.8 check backend deploy/onboard.py deploy/nodes && uvx --from pylint==4.0.8 pylint --disable=all --enable=duplicate-code --min-similarity-lines=6 --ignore-patterns='test_.*' --score=no backend/*.py",
+    "check:python": "uvx ruff@0.16.8 check backend deploy/onboard.py deploy/nodes tools && uvx --from pylint==4.0.8 pylint --disable=all --enable=duplicate-code --min-similarity-lines=6 --ignore-patterns='test_.*' --score=no backend/*.py",
     "test:python": "uv run --with pyyaml --no-project python -m unittest discover -s backend -p 'test*.py'",
     "lint": "oxlint",
     "format": "oxfmt",
