@@ -1,5 +1,6 @@
 """Local deployment. Never print credentials; keep handoff file owner-only."""
 import io
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -13,6 +14,27 @@ def ssh(command, data=None):
     p=subprocess.run(['ssh','-o','BatchMode=yes','-o','StrictHostKeyChecking=yes','Noether',command],
         input=data,stdout=subprocess.PIPE,stderr=subprocess.PIPE,check=True)
     return p.stdout
+
+# A server may contain newer operational fixes than this checkout. Refuse a full
+# release before staging anything when neither HEAD nor the working copy matches.
+manifest = json.loads(ssh("python3 -c " + shlex.quote('''
+import hashlib,json,pathlib
+root=pathlib.Path('/opt/jamie-portal/current/backend')
+files={str('backend/'+p.name):hashlib.sha256(p.read_bytes()).hexdigest()
+       for p in root.glob('*.py') if not p.name.startswith('test_')}
+adapter=pathlib.Path('/opt/xui-clash/clash-subscription.py')
+if adapter.exists(): files['deploy/subscription_adapter.py']=hashlib.sha256(adapter.read_bytes()).hexdigest()
+print(json.dumps(files))
+''')))
+drift=[]
+for name, remote_digest in manifest.items():
+    current=ROOT/name
+    baseline=subprocess.run(['git','show','HEAD:'+name],cwd=ROOT,capture_output=True)
+    expected={hashlib.sha256(current.read_bytes()).hexdigest()} if current.is_file() else set()
+    if baseline.returncode==0: expected.add(hashlib.sha256(baseline.stdout).hexdigest())
+    if remote_digest not in expected: drift.append(name)
+if drift:
+    raise SystemExit('Production differs from this checkout; reconcile before full deployment: '+', '.join(drift))
 
 archive=io.BytesIO()
 public = ROOT / 'dist/portal'

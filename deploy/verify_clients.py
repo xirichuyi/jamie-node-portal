@@ -47,7 +47,7 @@ def fetch(agent, suffix=''):
 yaml=fetch('ClashVergeRev/2.4').decode()
 assert yaml.count('type: hysteria2')+yaml.count('type: vless')==len(expected) and 'rule-providers:' in yaml
 assert len(re.findall(r'^  fingerprint:',yaml,re.M))==yaml.count('type: hysteria2')
-assert yaml.count('reality-opts:')==yaml.count('type: vless') and 'skip-cert-verify: true' not in yaml
+assert yaml.count('reality-opts:')+yaml.count('ws-opts:')==yaml.count('type: vless') and 'skip-cert-verify: true' not in yaml
 assert yaml==fetch('Mozilla/5.0','?format=clash').decode()
 rule_sets=len(re.findall(r'^    behavior:',yaml,re.M))
 rocket=fetch('Shadowrocket/2','?format=shadowrocket-conf').decode()
@@ -60,7 +60,8 @@ for line in native.splitlines():
     u=urllib.parse.urlsplit(line);assert u.scheme in ('hy2','hysteria2','vless')
     q=urllib.parse.parse_qs(u.query)
     if u.scheme=='vless':
-        assert q.get('security')==['reality'] and q.get('pbk') and q.get('sid')
+        assert ((q.get('security')==['reality'] and q.get('pbk') and q.get('sid'))
+                or (q.get('security')==['tls'] and q.get('type')==['ws'] and q.get('path')))
     else:
         assert 'pinSHA256' in q
 print('Clash and Shadowrocket auto/explicit formats and metadata: PASS')

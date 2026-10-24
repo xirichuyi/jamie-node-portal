@@ -29,8 +29,22 @@ def parse_link(line):
         result.update(type='hysteria2', pin=pin,
                       password=urllib.parse.unquote(u.username + (':' + u.password if u.password else '')))
     else:
+        if q.get('security') == ['tls'] and q.get('type') == ['ws']:
+            if q.get('encryption', ['none']) != ['none'] or q.get('flow', [''])[0]:
+                raise ValueError('Unsupported WebSocket VLESS settings')
+            if any(q.get(k, ['0'])[0].lower() not in ('0', 'false')
+                   for k in ('allowInsecure', 'insecure', 'skip-cert-verify')):
+                raise ValueError('TLS verification must remain enabled')
+            path = q.get('path', ['/'])[0]
+            host = q.get('host', [u.hostname])[0]
+            if not path.startswith('/') or any(c in path + host + result['sni'] for c in '\r\n\x00'):
+                raise ValueError('Invalid WebSocket request')
+            result.update(type='vless', uuid=str(uuid.UUID(urllib.parse.unquote(u.username))),
+                          network='ws', security='tls', path=path, host=host,
+                          fingerprint=q.get('fp', ['chrome'])[0], flow='')
+            return result
         if q.get('security') != ['reality'] or q.get('type', ['tcp'])[0] not in ('tcp', 'raw'):
-            raise ValueError('Only VLESS TCP REALITY is supported')
+            raise ValueError('Unsupported VLESS transport')
         public_key = q.get('pbk', [''])[0]
         short_id = q.get('sid', [''])[0]
         if not re.fullmatch('[A-Za-z0-9_-]{43}', public_key):
@@ -42,6 +56,7 @@ def parse_link(line):
         if q.get('encryption', ['none']) != ['none']:
             raise ValueError('Unsupported VLESS encryption')
         result.update(type='vless', uuid=str(uuid.UUID(urllib.parse.unquote(u.username))),
+                      network='tcp', security='reality',
                       public_key=public_key, short_id=short_id,
                       fingerprint=q.get('fp', ['chrome'])[0], flow=q.get('flow', [''])[0])
     return result

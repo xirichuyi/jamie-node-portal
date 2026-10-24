@@ -9,6 +9,16 @@ from pathlib import Path
 CATALOG_PATH = '/etc/jamie-node-catalog.json'
 
 
+def public_endpoint(address):
+    """Accept global IPs and the provider's explicit published HTTPS endpoints."""
+    if not isinstance(address, str):
+        return False
+    try:
+        return ipaddress.ip_address(address).is_global
+    except ValueError:
+        return re.fullmatch(r'[1-9][0-9]{0,4}-[a-z0-9]{26}\.instabox\.tech', address) is not None
+
+
 def validate_catalog(data):
     if not isinstance(data, dict) or data.get('version') != 1:
         raise ValueError('Unsupported node catalog')
@@ -26,7 +36,7 @@ def validate_catalog(data):
         quota = row.get('quota_bytes')
         if type(quota) is not int or quota < 0:
             raise ValueError('Invalid node quota_bytes')
-        if row['port'] > 65535 or not ipaddress.ip_address(row['server']).is_global:
+        if row['port'] > 65535 or not public_endpoint(row['server']):
             raise ValueError('Expected public node endpoint')
         for field in ('name', 'region', 'quota_group'):
             if (

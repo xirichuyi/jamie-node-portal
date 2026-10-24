@@ -1,5 +1,5 @@
 #!/bin/bash
-# New Alpine nodes only. Install bash before invoking this script.
+# Internal installer for new Alpine nodes only. Install bash before invoking.
 set -euo pipefail
 umask 077
 ip="$1"

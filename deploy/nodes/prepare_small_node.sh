@@ -1,5 +1,5 @@
 #!/bin/bash
-# Usage: bash prepare_small_node.sh PUBLIC_IP MANAGEMENT_PORT MASTER_IP
+# Internal installer: PUBLIC_IP MANAGEMENT_PORT MASTER_IP
 # Dedicated nft table: leaves existing rules and applications untouched.
 set -euo pipefail
 umask 077

@@ -38,7 +38,9 @@ with backend releases, preserving the cycle-billing metadata integration.
 
 ### Quick onboarding
 
-Run `npm run node:add` in this checkout. The wizard asks for the public IPv4,
+Run `npm run node:add` in this checkout. `deploy/onboard.py` is the only public
+entry point; implementation and installer assets live together in `deploy/nodes/`.
+The wizard asks for the public IP,
 SSH port, allocated TCP/UDP ports, display name and region. OpenSSH handles the
 password/key and first host-key confirmation; no password is stored by the wizard.
 The master defaults to the existing `Noether` SSH alias. For an existing node:
@@ -47,6 +49,27 @@ The master defaults to the existing `Noether` SSH alias. For an existing node:
 npm run node:add -- --ssh ck46
 npm run node:add -- --ssh ck46 --check --yes
 ```
+
+Add IPv6 HY2 to an existing managed machine, preserving its other protocol:
+
+```sh
+npm run node:add -- --host PUBLIC_IP --add-protocol --protocol hy2 --ipv6
+```
+
+The tool discovers the public IPv6 address (use `--endpoint` if more than one),
+keeps SSH/management addresses independent, reuses the installed panel, selects a
+free protocol port and assigns the next region/city number. Public names never
+gain a protocol or IP-family suffix. HY2/reality aliases are accepted. A capped
+existing inbound contributes half of its cap by default, or `--quota-tb` selects
+the slice. The original group limit and historical counters stay unchanged. Capacity
+is reserved before adding the inbound; a failed probe leaves the reduced donor cap
+and an unpublished inbound for safe retry with the saved allocation. This is not
+an all-or-nothing distributed transaction. Retrying never halves the cap again.
+IPv6 registrations use local Mihomo/Clash Verge for a real pre-publication check
+by default, so an IPv4-only master does not block the node. `--probe-origin master`
+selects the master explicitly; `--interface` selects the local physical interface.
+Known subscription adapter layouts are patched narrowly to enable IPv6 connections,
+preserving live routing; unknown layouts fail without overwriting them.
 
 For a new NAT node, parameters can also be supplied directly:
 
@@ -95,22 +118,20 @@ and chooses unused ports only from the supplied allocation. For dedicated server
 default management/proxy ports are 48180/TCP and 8443/UDP; NAT allocations must be
 entered explicitly. It bootstraps dependencies on new Alpine/Debian/Ubuntu hosts,
 reuses a complete existing installation and refuses to overwrite partial installs.
-The final step checks publication, the dedicated monitor's subscription, catalog
-observation, this node's member binding coverage and aggregate member-sync progress;
-it also names other active offline nodes, excluding retired nodes. Complete local
-binding coverage is not a claim that global entitlement synchronization completed.
-It refreshes the normal probe and
-reports the latest timestamped connectivity result separately. Pending sync is not
-reported as completed. If Clash Verge is installed locally, it also runs isolated
-Mihomo verification for the selected node after publication; a local failure is
-reported separately from the master's pre-publication probe, without modifying the
-OS proxy or withdrawing an otherwise working endpoint. Recheck with
-`python3 deploy/verify_clients.py --node PUBLIC_IPV4`.
+The final step checks only the target's publication, dedicated monitor subscription,
+management readiness and binding coverage. Other offline nodes and global pending
+counts are not completion gates and no fleet probe is started. Account synchronization
+continues through the normal entitlement worker; pending bindings are reported honestly.
+Default synchronization wait is zero; `--wait-seconds N` optionally waits for this
+target only. Local Mihomo verification connects only to the selected endpoint, without
+modifying the OS proxy. Repeating the same command verifies/reuses the existing node;
+`--check` provides read-only status without installation, publication or profile writes.
 Cloud/NAT forwarding cannot be provisioned by this tool.
 
 This quick path creates NEW nodes with no aggregate traffic cap, as requested for
 small rented nodes; existing capped nodes retain their allocation. Use the advanced
-command below for new shared-account/capped nodes. User billing always stays enabled.
+command below or the wizard's `--quota-group`, `--quota-tb`, `--group-limit-tb`
+options for new shared-account/capped nodes. User billing always stays enabled.
 Without `--publish-unverified`, a failed new-node probe still blocks publication.
 The flag is never saved as a default. Already-published endpoints retain publication
 and are checked without recreating their inbounds or credentials.
@@ -127,8 +148,8 @@ may require entering the password again; each run multiplexes its SSH connection
 From this checkout:
 
 ```sh
-python3 deploy/node_manager.py list
-python3 deploy/node_manager.py add --ssh SSH_ALIAS --ip PUBLIC_IPV4 \
+npm run node:add -- list
+npm run node:add -- advanced add --ssh SSH_ALIAS --ip PUBLIC_IPV4 \
   --management-port 48180 --port 8443 --name '🇯🇵 日本 · 东京 03' \
   --region 日本 --quota-group ACCOUNT_KEY --quota-tb 0.5 --prepare
 ```
@@ -206,6 +227,55 @@ the master-side probe is a separate path, not proof of every user's ISP reachabi
 
 ## Limits and recovery
 
+### InstaBox published HTTPS ports
+
+InstaBox has IPv4 NAT egress and global IPv6, but raw TCP/UDP ingress was not
+reachable in the initial external check. Its official `POST /v1/machines/{id}/ports`
+API publishes HTTPS URLs; HTTP and WebSocket echo were both verified. Use VLESS
+WebSocket with platform TLS, without relaying customer traffic through Noether.
+Do not run the IPv4/REALITY onboarding wizard against these public HTTPS URLs.
+
+`npm run node:add -- instabox` reuses the pinned node preparation and transactional
+registration helpers. Set `INSTABOX_API_KEY` privately in the environment, then run
+`prepare --names instabox-1` and `register --names instabox-1` after deploying the
+WebSocket-capable backend and adapter. Multiple explicitly named machines are
+processed sequentially. Preparation refuses partial installs; registration retries
+reuse inbound identity, path, counters and customer outbox processing.
+
+Each machine publishes 8080 for VLESS WebSocket and 48181 for management. The latter
+is an API-only bridge that requires the node's bearer token before forwarding to
+the local pinned-TLS panel on 48180. It does not expose the panel UI or subscription.
+Direct 48180 retains the existing loopback/master-source firewall. Platform-facing
+TLS uses public CA verification, not a pin to the provider's rotating certificate.
+The catalog accepts the provider's exact port-machine hostname format; arbitrary
+DNS names cannot bypass the existing public-address validation.
+
+No lifecycle settings are changed and no artificial keepalive jobs are installed.
+Paused machines interrupt connections. Free-machine availability and provider
+traffic allowances must not be represented as a permanent service guarantee.
+Node aggregate quotas are separate from unchanged customer package billing.
+
+On 2026-10-23, `instabox-1` through `instabox-5` were registered as node/inbound
+15 through 19. All five passed the master Xray probe and an isolated workstation
+Mihomo request using the dedicated monitoring subscription. Observed IPv4 exits
+were 35.90.59.10, 35.90.32.199, and 54.191.15.212 (shared by machines 3–5).
+The published catalog names are `🇺🇸 美国 · 俄勒冈 01` through `05`, mapped
+in order to platform machines `instabox-1` through `instabox-5`. AWS's published
+IP ranges place all three observed exits in `us-west-2` (Oregon). Platform machine
+names remain the operational identifiers; preserve the catalog display names
+when re-registering. Both Clash and Shadowrocket read these names at runtime.
+These are observations, not dedicated-IP or static-IP guarantees. The provider
+rewrites HTTP Host on ingress; keep the guest WebSocket host unset and match its
+stable path, while clients validate TLS/SNI against the public provider hostname.
+
+The 2026-10-23 checkout predates live portal/routing fixes from 2026-10-22.
+The live rollout preserves that production baseline and changes only the three
+transport/catalog modules plus the VLESS conversion block in the live adapter.
+Do not overwrite those live fixes with this checkout. Full deployment now checks
+the server against both local HEAD and working files and rejects unresolved drift.
+
+## Existing node recovery notes
+
 Frankfurt onboarding (2026-10-18): Nezha UUIDs
 confirmed `euler` = `130.61.20.99`, `riemann` = `92.5.101.54`, and
 `leibniz` = `141.147.45.180`; root SSH accepts the operator's existing local key.
@@ -217,7 +287,7 @@ Management uses 48180/TCP restricted to Noether (`138.2.82.194`), with 8443/UDP
 for HY2. OCI NSG `jamie-node-frankfurt` is attached to these three VNICs; it permits
 48180/TCP only from the master and 8443/UDP from clients. Existing security-list
 rules are preserved. Future nodes in this VCN can reuse this NSG and ports.
-Do not rerun preparation over these installed panels; use `node_manager.py add`
+Do not rerun preparation over these installed panels; use `npm run node:add -- advanced add`
 without `--prepare` for registration updates. Root SSH uses the existing local
 key; no private SSH key was uploaded to these nodes.
 All 35 members completed outbox synchronization with zero pending/errors; the
@@ -301,6 +371,68 @@ this is distinct from ck42's own healthy configuration and connectivity.
 No manual transport migration or staged catalog was needed.
 Its aggregate quota group is `unlimited-147-15-146-142`; customer billing remains
 enabled. Reuse its saved host/SSH-port profile and do not rerun preparation.
+
+ck26 was added through `npm run node:add` on 2026-10-23 as
+`🇮🇱 以色列 · 耶路撒冷 01` (node/inbound 20/20). OCI metadata reports
+`il-jerusalem-1`; public IP `82.70.223.52`, SSH `21125 -> 22`, management
+TLS `21126`, VLESS REALITY TCP `21127`, within the allocated `21125-21129` range.
+It is an Alpine ARM64 container with a 128 MiB cgroup memory limit; host `df`
+output does not establish its advertised 512 MiB container disk allowance.
+The existing onboarding workflow installed the pinned Xray core and passed the
+master probe before publication. All 38 customer bindings are present and node
+configuration is clean. Independent workstation Mihomo over the physical interface
+passed HTTP 204 and confirmed the IL exit; Clash and Shadowrocket names/endpoints
+also passed. Global synchronization still reports 38 pending/errors while the
+existing Osaka node is offline; ck26 itself is online and synchronized.
+The temporary standalone client check must serialize Unicode names with
+`ensure_ascii=False` (or YAML), since Mihomo's YAML reader rejects JSON surrogate
+escapes for flag emoji. Reuse the saved host/SSH-port profile without preparation;
+aggregate quota is unlimited, with normal customer package billing preserved.
+
+On 2026-10-24, cauchy (`168.138.218.181`) and laplace (`168.110.35.217`)
+were added as `🇯🇵 日本 · 东京 04` and `🇯🇵 日本 · 东京 05` (node/inbound
+21/21 and 22/22). Both are Debian 12 AMD64, accept the operator's existing
+local SSH key as root on port 22, and report OCI `ap-tokyo-1` in the same
+compartment. The explicitly requested pair budget is 8 TB: runtime quota group
+`oci-tokyo-95272271-pair` has an 8,000,000,000,000-byte limit, with
+4,000,000,000,000 bytes allocated to each inbound and `trafficReset=never`.
+This is the pair's managed proxy traffic budget, not a whole-account cloud meter
+or an automatic monthly reset. Preserve this shared group and both allocations
+on retries; do not use `--unlimited` for these nodes.
+Both use management TLS TCP 48180 restricted to Noether and VLESS REALITY TCP
+8443, with Xray pinned to 26.6.27. Master registration probes and independent
+physical-interface Mihomo requests passed, including JP exit-IP checks and
+Clash/Shadowrocket metadata. Laplace passed on a registration retry after its
+initial probe failed; the retry reused its installed panel and inbound identity.
+No frontend/backend deployment or existing customer-counter reset was needed.
+Both nodes received all 39 customer bindings through the existing entitlement
+worker. Global sync errors can remain while the pre-existing Jerusalem node is
+offline; distinguish that fleet-wide state from these two nodes' own readiness.
+
+Later on 2026-10-24, IPv6 Hysteria2 was added alongside REALITY on these same
+managed nodes. Inbounds 23/24 use UDP 8444, advertised respectively as
+`[2603:c021:8027:deee:0:a60d:af9f:f896]:8444` and
+`[2603:c021:8027:deee:0:be05:2bcc:a8e0]:8444`, named
+`🇯🇵 日本 · 东京 06` and `🇯🇵 日本 · 东京 07`.
+Management continues over the existing restricted IPv4 endpoints. The four
+inbounds 21–24 now have 2 TB each; their shared group remains exactly 8 TB.
+Existing REALITY counters and identities were retained, with `trafficReset=never`.
+Do not reapply the earlier 4 TB REALITY allocations while the HY2 allocations exist.
+No extra panel or standalone Hysteria service was installed; the existing Xray
+26.6.27 serves both protocols, with certificate pins retained in subscriptions.
+Pre-publication tests used temporary dedicated identities and workstation Mihomo
+bound to the physical IPv6 interface. Noether has no global IPv6 route, so its
+periodic probe cannot validate these IPv6 endpoints; do not interpret that probe's
+failure as a workstation connectivity result or silently substitute an IPv4 test.
+The live adapter's existing routing baseline was retained, enabling IPv6 transport
+when an IPv6 endpoint is present (Clash and Shadowrocket configurations). The
+unified-tool commit was rebased onto the current GitHub main branch, incorporating
+the newer routing and admin changes instead of overwriting them.
+Private pre-change backups are under
+`/root/codex-backups/tokyo-hy2-v6-1792823066` on Noether.
+Both entries received all 39 customer bindings. Independent workstation tests of
+their real subscriptions completed 10 MB downloads at 27.4/24.7 Mbps respectively;
+these are point-in-time results. Both retained REALITY entries also passed.
 
 The group budget sums managed VPN inbound allowances. Tokyo and Singapore each
 currently use 8 TB + 1 TB slices. Other group allocations are 9 TB. Counters remain

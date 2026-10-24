@@ -11,7 +11,7 @@ import unittest
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'deploy'))
-import onboard
+from nodes import cli as onboard
 
 
 FACTS = '''os=alpine
@@ -54,16 +54,17 @@ class OnboardingTests(unittest.TestCase):
                 onboard.port_pool(value)
 
     def exercise(self, *, check=False, existing=True, retired=False, fail=False,
-                 facts=FACTS, extra=(), existing_protocol=None, automatic=True):
+                 facts=FACTS, extra=(), existing_protocol=None, automatic=True, status_override=None):
         catalog = {'service': {'master_ip': '8.8.8.8'}, 'nodes': []}
         if existing:
             catalog['nodes'].append(dict(server='158.101.142.111', port=21229,
                                          name='日本 03', region='日本', enabled=not retired,
-                                         quota_group='limited', quota_bytes=1000))
+                                         quota_group='limited', quota_bytes=1000, inbound_id=7, node_id=7))
             if existing_protocol:
                 catalog['nodes'][0]['protocol'] = existing_protocol
         status = dict(published=True, subscription_present=True, catalog_observed=True,
                       sync_pending=0, sync_errors=0, connectivity_ok=False)
+        status.update(status_override or {})
         commands, logins, registrations = [], [], []
 
         def call(_config, host, command, data=None):
@@ -75,6 +76,8 @@ class OnboardingTests(unittest.TestCase):
             if command.startswith('sed -n'):
                 return b'21226'
             if command.startswith('python3 -c'):
+                if data and json.loads(data).get('owner'):
+                    return b'{"owner_ids":[7]}'
                 return json.dumps(status).encode()
             return b''
 
@@ -104,6 +107,7 @@ class OnboardingTests(unittest.TestCase):
                  patch.object(onboard, 'call', side_effect=call), \
                  patch.object(onboard.subprocess, 'run', side_effect=execute), \
                  patch.object(onboard.node_manager, 'main', side_effect=register), \
+                 patch.object(onboard.client_probe, 'core_path', return_value=None), \
                  contextlib.redirect_stdout(io.StringIO()):
                 error = None
                 try:
@@ -218,6 +222,36 @@ class OnboardingTests(unittest.TestCase):
         _, _, registrations, _, error = self.exercise(
             facts=facts + 'managed_tcp=21229\n', existing_protocol='vless')
         self.assertIsNone(error)
+        self.assertEqual(registrations, [])
+
+    def test_other_offline_nodes_never_trigger_fleet_probe_or_wait(self):
+        with patch.object(onboard.time, 'sleep', side_effect=AssertionError('Must not wait for old nodes')):
+            commands, _, _, _, error = self.exercise(status_override={
+                'sync_pending': 39, 'sync_errors': 39, 'other_offline_nodes': ['old-offline'],
+                'node_members_bound': 1, 'node_members_expected': 39})
+        self.assertIsNone(error)
+        self.assertFalse(any('jamie-portal-probe' in cmd for _, cmd in commands))
+
+    def test_add_ipv6_protocol_keeps_management_and_splits_existing_cap(self):
+        address = '2603:c021:8027:deee::123'
+        facts = FACTS + 'ipv6=' + address + '/128\ncloud_region=ap-tokyo-1\n'
+        _, _, registrations, profiles, error = self.exercise(
+            facts=facts, existing_protocol='vless',
+            extra=['--add-protocol', '--protocol', 'hysteria', '--ipv6', '--udp-ports', '21230'])
+        self.assertIsNone(error)
+        options = registrations[0]
+        self.assertEqual(options[options.index('--ip') + 1], address)
+        self.assertEqual(options[options.index('--management-ip') + 1], '158.101.142.111')
+        self.assertIn('--split-from', options)
+        self.assertNotIn('--prepare', options)
+        self.assertEqual(profiles[0]['quota_bytes'], 500)
+        self.assertEqual(profiles[0]['name'], '🇯🇵 日本 · 东京 01')
+        self.assertNotIn('Hy2', profiles[0]['name'])
+
+    def test_ambiguous_ipv6_requires_explicit_endpoint_before_registration(self):
+        facts = FACTS + 'ipv6=2603:c021:8027:deee::1/128\nipv6=2603:c021:8027:deee::2/128\n'
+        _, _, registrations, _, error = self.exercise(facts=facts, extra=['--ipv6'])
+        self.assertIn('唯一公网 IPv6', error)
         self.assertEqual(registrations, [])
 
 

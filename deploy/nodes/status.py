@@ -1,4 +1,4 @@
-"""Read-only, credential-free onboarding status. Run on the master with JSON stdin."""
+"""Read-only target status; unrelated offline nodes never gate onboarding."""
 
 import base64
 import json
@@ -14,6 +14,11 @@ from panel import Panel
 
 
 def run(target):
+    if target.get('owner'):
+        panel = Panel(json.loads(Path('/etc/jamie-portal.json').read_text()))
+        owners = [n['id'] for n in panel.request('nodes/list')
+                  if n['address'] == target['management_ip'] and n['port'] == target['management_port']]
+        return {'owner_ids': owners}
     catalog = load_catalog()
     row = next((n for n in catalog['nodes']
                 if (n['server'], n['port']) == (target['ip'], target['port'])), None)

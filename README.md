@@ -23,10 +23,14 @@
 | `deploy/` | 部署、备份、探测、节点接入和验收工具 |
 
 节点按运维流程登记，不修改节点数组/IP 常量。共享业务操作复用同一事务入口，不为每条路由复制实现。
-新增节点运行 `npm run node:add`：向导自动检查系统、内存和端口，准备安装、注册并检查订阅同步。
+新增节点统一运行 `npm run node:add`，实现集中在 `deploy/nodes/`：自动检查系统、内存、端口和已有安装，完成注册、订阅配置和目标节点实连验证。
+给已有机器追加 IPv6 Hy2：`npm run node:add -- --host IP --add-protocol --protocol hy2 --ipv6`。
+自动沿用地区编号、账号和共享额度；追加入口默认拆分原入口额度，不扩大总额。旧节点离线不阻塞接入，也不启动全局探测；账号同步留在后台。
 NAT 节点可用 `--host IP --ssh-port 端口 --ports 分配范围 --name 名称 --region 地区`；
 新 NAT 节点默认直接使用 VLESS REALITY TCP，自动校验兼容内核、实测后发布，无需手动迁移。
 支持已有 SSH 别名或直接输入 IP/SSH 端口，参数可复用；详见 [节点运维](NODE-OPERATIONS.md)。
+Instabox 的公开 HTTPS 端口通过 `npm run node:add -- instabox ...` 接入 VLESS WebSocket + TLS；
+使用平台域名直连，订阅及探测同时支持它与已有 REALITY/Hysteria2 节点。
 新账号在至少一个在役节点确认配置后即可导入订阅，其他节点继续重试；部分可用不代表同步完成。
 停用、删除和凭据轮换仍保留完整确认流程，不因部分可用而提前完成。
 

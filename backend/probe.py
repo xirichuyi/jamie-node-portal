@@ -23,13 +23,19 @@ def outbound(uri, nodes):
     if (p['server'], p['port']) not in nodes:
         raise ValueError('Unexpected probe node')
     if p['type'] == 'vless':
+        stream = {'network': 'tcp', 'security': 'reality',
+                  'realitySettings': {'serverName': p['sni'], 'fingerprint': p['fingerprint'],
+                                      'publicKey': p.get('public_key'), 'shortId': p.get('short_id')}}
+        if p['network'] == 'ws':
+            stream = {'network': 'ws', 'security': 'tls',
+                      'tlsSettings': {'serverName': p['sni'], 'allowInsecure': False,
+                                      'fingerprint': p['fingerprint'], 'alpn': ['http/1.1']},
+                      'wsSettings': {'path': p['path'], 'headers': {'Host': p['host']}}}
         return {
             'protocol': 'vless',
             'settings': {'vnext': [{'address': p['server'], 'port': p['port'],
                                    'users': [{'id': p['uuid'], 'encryption': 'none', 'flow': p['flow']}]}]},
-            'streamSettings': {'network': 'tcp', 'security': 'reality',
-                               'realitySettings': {'serverName': p['sni'], 'fingerprint': p['fingerprint'],
-                                                   'publicKey': p['public_key'], 'shortId': p['short_id']}},
+            'streamSettings': stream,
         }
     return {
         'protocol': 'hysteria',

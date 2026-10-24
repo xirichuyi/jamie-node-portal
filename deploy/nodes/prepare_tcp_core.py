@@ -1,4 +1,4 @@
-"""Run on a freshly prepared node. Pin the core used by deployed Mihomo clients."""
+"""Pin compatible cores on fresh nodes; never replace an existing core blindly."""
 
 import hashlib
 import os

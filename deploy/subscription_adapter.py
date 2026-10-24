@@ -178,9 +178,13 @@ def collect_proxies(body):
         p = {'name': name, 'type': parsed['type'], 'server': parsed['server'],
              'port': parsed['port'], 'udp': True, 'skip-cert-verify': False}
         if parsed['type'] == 'vless':
-            p.update(uuid=parsed['uuid'], tls=True, network='tcp', servername=parsed['sni'],
-                     **{'client-fingerprint': parsed['fingerprint'],
-                        'reality-opts': {'public-key': parsed['public_key'], 'short-id': parsed['short_id']}})
+            p.update(uuid=parsed['uuid'], tls=True, network=parsed['network'], servername=parsed['sni'],
+                     **{'client-fingerprint': parsed['fingerprint']})
+            if parsed['network'] == 'ws':
+                p['ws-opts'] = {'path': parsed['path'], 'headers': {'Host': parsed['host']}}
+                p['alpn'] = ['http/1.1']
+            else:
+                p['reality-opts'] = {'public-key': parsed['public_key'], 'short-id': parsed['short_id']}
             if parsed['flow']:
                 p['flow'] = parsed['flow']
         else:
@@ -217,13 +221,13 @@ def convert(body, usage=None, client='clash'):
         dict(name=AI, type='url-test', tolerance=50, hidden=True, proxies=ai_nodes, **probe),
     ] + account_groups(usage)
     if client == 'shadowrocket':
-        head = yaml.dump({'mode': 'rule', 'ipv6': False,
+        head = yaml.dump({'mode': 'rule', 'ipv6': any(':' in p['server'] for p in proxies),
             'dns': {'enable': True, 'nameserver': DOMESTIC_DOH},
             'proxies': proxies, 'proxy-groups': groups},
             Dumper=PlainDumper, allow_unicode=True, sort_keys=False)
         return (head + rule_lines(service, client)).encode()
     head = yaml.dump({'mixed-port': 7890, 'allow-lan': False,
-        'mode': 'rule', 'log-level': 'warning', 'ipv6': False,
+        'mode': 'rule', 'log-level': 'warning', 'ipv6': any(':' in p['server'] for p in proxies),
         'unified-delay': True, 'tcp-concurrent': True,
         'profile': {'store-selected': True, 'store-fake-ip': True},
         'sniffer': {'enable': True, 'force-dns-mapping': True, 'parse-pure-ip': True,
@@ -252,7 +256,7 @@ def rule_lines(service, client):
 def shadowrocket_config(raw, update_url):
     """Routing profile for Shadowrocket; nodes come from the separately imported subscription."""
     service = service_settings()
-    _, region_of = collect_proxies(raw)
+    proxies, region_of = collect_proxies(raw)
     probe = 'url=' + service['probe_url'] + ',interval=600,tolerance=50,timeout=5'
     present = [r for r in AI_REGIONS if r in region_of.values()]
     ai_filter = '|'.join(map(re.escape, present)) or '.*'
@@ -265,7 +269,7 @@ def shadowrocket_config(raw, update_url):
         'tun-excluded-routes = 10.0.0.0/8, 100.64.0.0/10, 127.0.0.0/8, 169.254.0.0/16, 172.16.0.0/12, 192.0.0.0/24, 192.0.2.0/24, 192.88.99.0/24, 192.168.0.0/16, 198.51.100.0/24, 203.0.113.0/24, 224.0.0.0/4, 255.255.255.255/32, 239.255.255.250/32',
         'dns-server = ' + ', '.join(DOMESTIC_DOH),
         'fallback-dns-server = system',
-        'ipv6 = false',
+        'ipv6 = ' + str(any(':' in p['server'] for p in proxies)).lower(),
         'prefer-ipv6 = false',
         'dns-direct-system = false',
         'icmp-auto-reply = true',

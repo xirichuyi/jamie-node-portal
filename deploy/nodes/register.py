@@ -1,4 +1,4 @@
-"""Master-side transactional publication. Input contains private node credentials."""
+"""Master-side publication; private parameters arrive only over SSH stdin."""
 
 import copy
 import fcntl
@@ -25,6 +25,11 @@ MONITOR_PATH = '/var/lib/jamie-portal/probe-identity.json'
 CONFIG_PATH = '/etc/jamie-portal.json'
 
 def run(params):
+    management_server = params.get('management_server', params['server'])
+    listener_port = params.get('listener_port', params['port'])
+    websocket = params.get('transport') == 'ws'
+    if websocket and (params.get('protocol') != 'vless' or not params.get('ws_path', '').startswith('/')):
+        raise ValueError('Invalid WebSocket node')
     catalog = load_catalog()
     panel = Panel(json.loads(Path(CONFIG_PATH).read_text()))
     existing = next(
@@ -42,6 +47,8 @@ def run(params):
     }
     protocol = params.get('protocol', 'hysteria')
     row['protocol'] = protocol
+    if websocket:
+        row['transport'] = 'ws'
     row.update(
         inbound_id=existing['inbound_id']
         if existing
@@ -52,6 +59,19 @@ def run(params):
     candidate['nodes'] = [n for n in candidate['nodes'] if n['inbound_id'] != row['inbound_id']] + [
         row
     ]
+    donor = None
+    if params.get('split_from_id') and not existing:
+        donor = next(n for n in candidate['nodes'] if n['inbound_id'] == params['split_from_id'])
+        original = params['split_original_bytes']
+        remaining = original - row['quota_bytes']
+        if (remaining <= 0 or not donor['enabled'] or donor['quota_group'] != row['quota_group']
+                or donor['quota_bytes'] not in (original, remaining)):
+            raise ValueError('Shared allocation changed; refusing to split again')
+        donor['quota_bytes'] = remaining
+        owner = next((n for n in panel.request('nodes/list')
+                      if n['address'] == management_server and n['port'] == params['management_port']), None)
+        if not owner or owner['id'] != donor['node_id']:
+            raise ValueError('Quota donor belongs to another managed machine')
     if params.get('group_limit') is not None:
         old = candidate['quota_groups'].get(row['quota_group'])
         if old is not None and old != params['group_limit']:
@@ -63,12 +83,38 @@ def run(params):
     shutil.copy2(CATALOG_PATH, backup / 'catalog.json')
     with sqlite3.connect('/etc/x-ui/x-ui.db') as src, sqlite3.connect(backup / 'panel.db') as dst:
         src.backup(dst)
+    if donor:
+        old = panel.request('inbounds/get/' + str(donor['inbound_id']))
+        if old['up'] + old['down'] >= donor['quota_bytes']:
+            raise ValueError('Split would put the existing inbound below its consumed traffic')
+        if old['total'] not in (params['split_original_bytes'], donor['quota_bytes']):
+            raise ValueError('Panel allocation changed')
+        update = copy.deepcopy(old)
+        update.update(total=donor['quota_bytes'], trafficReset='never')
+        for key in ('settings', 'streamSettings', 'sniffing'):
+            if isinstance(update[key], dict):
+                update[key] = json.dumps(update[key])
+        panel.request('inbounds/update/' + str(old['id']), update)
+        after = panel.request('inbounds/get/' + str(old['id']))
+        if after['total'] != donor['quota_bytes'] or after['up'] < old['up'] or after['down'] < old['down']:
+            raise RuntimeError('Allocation verification failed')
+        # Reserve capacity before adding the new inbound. On a failed probe the
+        # smaller donor remains saved; retries reuse the same reserved amount.
+        reserved = copy.deepcopy(catalog)
+        for item in reserved['nodes']:
+            if item['inbound_id'] == donor['inbound_id']:
+                item['quota_bytes'] = donor['quota_bytes']
+        validate_catalog(reserved)
+        temporary = Path(CATALOG_PATH + '.tmp')
+        temporary.write_text(json.dumps(reserved, ensure_ascii=False, indent=2))
+        temporary.chmod(0o644)
+        temporary.replace(CATALOG_PATH)
     nodes = panel.request('nodes/list')
     node = next(
         (
             n
             for n in nodes
-            if n['address'] == params['server'] and n['port'] == params['management_port']
+            if n['address'] == management_server and n['port'] == params['management_port']
         ),
         None,
     )
@@ -79,13 +125,13 @@ def run(params):
                 'name': 'node-' + params['server'],
                 'remark': params['name'],
                 'scheme': 'https',
-                'address': params['server'],
+                'address': management_server,
                 'port': params['management_port'],
                 'basePath': params['base'],
                 'apiToken': params['token'],
                 'enable': True,
                 'allowPrivateAddress': False,
-                'tlsVerifyMode': 'pin',
+                'tlsVerifyMode': 'verify' if websocket else 'pin',
                 'pinnedCertSha256': params['pin'],
                 'inboundSyncMode': 'all',
             },
@@ -93,7 +139,7 @@ def run(params):
         node = next(
             n
             for n in panel.request('nodes/list')
-            if n['address'] == params['server'] and n['port'] == params['management_port']
+            if n['address'] == management_server and n['port'] == params['management_port']
         )
     # Keep legacy tag stable for HY2 retries.
     tag = ('managed-vless-' if protocol == 'vless' else 'managed-hy2-') + params['server'].replace('.', '-') + '-' + str(params['port'])
@@ -130,7 +176,18 @@ def run(params):
             }
         ]
         settings = {'version': 2, 'clients': []}
-        if protocol == 'vless':
+        if websocket:
+            stream = {
+                'network': 'ws', 'security': 'none',
+                # The provider rewrites Host before forwarding to the guest.
+                # TLS/SNI authenticate the public endpoint; the guest matches the path.
+                'wsSettings': {'path': params['ws_path']},
+                'externalProxy': [{'forceTls': 'tls', 'dest': params['server'],
+                                   'port': params['port'], 'remark': params['name'],
+                                   'sni': params['server'], 'fingerprint': 'chrome',
+                                   'alpn': ['http/1.1']}]}
+            settings = {'clients': [], 'decryption': 'none', 'fallbacks': []}
+        elif protocol == 'vless':
             generated = subprocess.run(
                 ['/usr/local/x-ui/bin/xray-linux-amd64', 'x25519'],
                 capture_output=True, text=True, check=True).stdout
@@ -163,7 +220,7 @@ def run(params):
                 'trafficReset': 'never',
                 'trafficResetDay': 1,
                 'listen': '',
-                'port': params['port'],
+                'port': listener_port,
                 'protocol': protocol,
                 'tag': tag,
                 'settings': json.dumps(settings),
@@ -172,10 +229,14 @@ def run(params):
             },
         )
         inbound = next(n for n in panel.request('inbounds/list') if n['tag'] == tag)
-    if inbound['nodeId'] != node['id'] or inbound['port'] != params['port']:
+    if inbound['nodeId'] != node['id'] or inbound['port'] != listener_port:
         raise RuntimeError('Existing inbound does not belong to the requested node')
     if inbound['protocol'] != protocol:
         raise RuntimeError('Existing inbound transport differs; explicit migration required')
+    current_stream = inbound['streamSettings']
+    current_stream = json.loads(current_stream) if isinstance(current_stream, str) else current_stream
+    if (current_stream.get('network') == 'ws') != websocket:
+        raise RuntimeError('Existing inbound network differs; explicit migration required')
     row.update(inbound_id=inbound['id'], node_id=node['id'])
     validate_catalog(candidate)
     if inbound['total'] != params['quota_bytes']:
@@ -218,12 +279,20 @@ def run(params):
                 'inboundIds': [inbound['id']],
             },
         )
-        uri = f'hysteria2://{auth}@{params["server"]}:{params["port"]}?sni={params["server"]}&pinSHA256={params["pin"]}'
-        if protocol == 'vless':
+        host = params['server']
+        authority = f'[{host}]' if ':' in host else host
+        uri = f'hysteria2://{auth}@{authority}:{params["port"]}?' + urllib.parse.urlencode({
+            'sni': host, 'pinSHA256': params['pin']})
+        if websocket:
+            uri = f'vless://{client_uuid}@{authority}:{params["port"]}?' + urllib.parse.urlencode({
+                'security': 'tls', 'type': 'ws', 'encryption': 'none',
+                'sni': params['server'], 'host': params['server'], 'fp': 'chrome',
+                'path': current_stream['wsSettings']['path'], 'alpn': 'http/1.1'})
+        elif protocol == 'vless':
             stream = inbound['streamSettings']
             stream = json.loads(stream) if isinstance(stream, str) else stream
             reality = stream['realitySettings']
-            uri = f'vless://{client_uuid}@{params["server"]}:{params["port"]}?' + urllib.parse.urlencode({
+            uri = f'vless://{client_uuid}@{authority}:{params["port"]}?' + urllib.parse.urlencode({
                 'security': 'reality', 'type': 'tcp', 'encryption': 'none',
                 'sni': reality['serverNames'][0], 'fp': 'chrome',
                 'pbk': reality['settings']['publicKey'], 'sid': reality['shortIds'][0]})

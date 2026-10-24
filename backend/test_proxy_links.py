@@ -8,9 +8,24 @@ from proxy_links import decode_links, parse_link
 VLESS = ('vless://11111111-2222-4333-8444-555555555555@8.8.4.4:21227'
          '?type=tcp&security=reality&pbk=' + 'a' * 43
          + '&sid=0123456789abcdef&sni=www.example.com&fp=chrome&encryption=none')
+WSS_HOST = '8080-agqvokiqj7tgcg6m56ddlqduxm.instabox.tech'
+WSS = ('vless://11111111-2222-4333-8444-555555555555@' + WSS_HOST
+       + ':443?security=tls&type=ws&path=%2Fnode&host=' + WSS_HOST + '&sni=' + WSS_HOST)
 
 
 class ProxyLinkTests(unittest.TestCase):
+    def test_websocket_tls_outbound_and_downgrade_rejection(self):
+        config = outbound(WSS, {(WSS_HOST, 443): 'Instabox'})
+        stream = config['streamSettings']
+        self.assertEqual(stream['network'], 'ws')
+        self.assertEqual(stream['wsSettings'], {'path': '/node', 'headers': {'Host': WSS_HOST}})
+        self.assertFalse(stream['tlsSettings']['allowInsecure'])
+        self.assertEqual(stream['tlsSettings']['alpn'], ['http/1.1'])
+        for bad in (WSS.replace('security=tls', 'security=none'), WSS + '&allowInsecure=1',
+                    WSS + '&flow=xtls-rprx-vision', WSS.replace('%2Fnode', '%2Fnode%0D%0A')):
+            with self.subTest(link=bad), self.assertRaises(ValueError):
+                parse_link(bad)
+
     def test_reality_is_converted_without_disabling_verification(self):
         config = outbound(VLESS, {('8.8.4.4', 21227): 'test'})
         self.assertEqual(outbound_endpoint(config), ('8.8.4.4', 21227))

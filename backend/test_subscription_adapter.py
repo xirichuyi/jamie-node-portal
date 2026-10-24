@@ -5,7 +5,7 @@ from pathlib import Path
 import unittest
 from unittest.mock import patch
 import yaml
-from test_proxy_links import VLESS
+from test_proxy_links import VLESS, WSS, WSS_HOST
 
 spec = importlib.util.spec_from_file_location(
     'subscription_adapter',
@@ -105,6 +105,23 @@ class DynamicSubscriptionTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 adapter.convert(raw)
 
+    def test_ipv6_hy2_enables_connections_and_preserves_bracketed_native_link(self):
+        host = '2603:c021:8027:deee::1'
+        rows = [{'server': host, 'port': 8443, 'name': 'IPv6 HY2'}]
+        raw = ('hy2://secret@[' + host + ']:8443?pinSHA256=' + 'a' * 64).encode()
+        with patch.object(adapter, 'active_nodes', return_value=rows):
+            config = yaml.safe_load(adapter.convert(raw))
+            native = base64.b64decode(adapter.native_subscription(raw)).decode()
+            rocket = yaml.safe_load(adapter.convert(raw, client='shadowrocket'))
+            rocket_profile = adapter.shadowrocket_config(raw, 'https://example.test/config').decode()
+        self.assertTrue(config['ipv6'])
+        self.assertFalse(config['dns']['ipv6'])
+        self.assertEqual(config['proxies'][0]['server'], host)
+        self.assertIn('@[' + host + ']:8443', native)
+        self.assertFalse(config['proxies'][0]['skip-cert-verify'])
+        self.assertTrue(rocket['ipv6'])
+        self.assertIn('ipv6 = true', rocket_profile)
+
     def test_mixed_hy2_and_reality_subscriptions(self):
         rows = [{'server': '8.8.4.4', 'port': 8443, 'name': 'UDP node'},
                 {'server': '8.8.4.4', 'port': 21227, 'name': 'TCP node'}]
@@ -124,6 +141,22 @@ class DynamicSubscriptionTests(unittest.TestCase):
         raw = ('hy2://secret@8.8.4.4:8443?pinSHA256=' + 'a' * 64 + '\n' + VLESS).encode()
         with patch.object(adapter, 'active_nodes', return_value=[{'server': '8.8.4.4', 'port': 8443, 'name': 'UDP node'}]):
             self.assertEqual(len(yaml.safe_load(adapter.convert(raw))['proxies']), 1)
+
+    def test_mixed_websocket_and_reality_preserve_transport_and_tls(self):
+        rows = [{'server': WSS_HOST, 'port': 443, 'name': 'Instabox'},
+                {'server': '8.8.4.4', 'port': 21227, 'name': 'Existing'}]
+        raw = (WSS + '\n' + VLESS).encode()
+        with patch.object(adapter, 'active_nodes', return_value=rows):
+            config = yaml.safe_load(adapter.convert(raw))
+            native = base64.b64decode(adapter.native_subscription(raw)).decode()
+        ws, tcp = config['proxies']
+        self.assertEqual(ws['network'], 'ws')
+        self.assertEqual(ws['ws-opts'], {'path': '/node', 'headers': {'Host': WSS_HOST}})
+        self.assertFalse(ws['skip-cert-verify'])
+        self.assertNotIn('reality-opts', ws)
+        self.assertIn('reality-opts', tcp)
+        self.assertIn('security=tls', native)
+
 
 
 if __name__ == '__main__':

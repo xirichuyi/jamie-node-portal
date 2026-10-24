@@ -76,6 +76,16 @@ class CatalogTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 validate_catalog(data)
 
+    def test_provider_public_hostname_without_general_dns_bypass(self):
+        data = self.catalog()
+        data['nodes'][0]['server'] = '8080-agqvokiqj7tgcg6m56ddlqduxm.instabox.tech'
+        validate_catalog(data)
+        for host in ('localhost', 'internal.local', '127.0.0.1.nip.io',
+                     '8080-agqvokiqj7tgcg6m56ddlqduxm.instabox.tech.attacker.test'):
+            data['nodes'][0]['server'] = host
+            with self.subTest(host=host), self.assertRaises(ValueError):
+                validate_catalog(data)
+
     def test_unlimited_node_requires_separate_explicit_group(self):
         data = self.catalog()
         data['nodes'][0]['quota_bytes'] = 0

@@ -1,4 +1,4 @@
-"""Disable remote-node subscription endpoint; only the master serves users."""
+"""Keep subscriptions on the master when reusing or installing a managed node."""
 
 import json
 import shlex

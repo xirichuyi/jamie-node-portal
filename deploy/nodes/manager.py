@@ -11,6 +11,7 @@ import re
 import shlex
 import subprocess
 import sys
+from . import client_probe
 
 ROOT = Path(__file__).resolve().parent
 SSH_OPTIONS = []
@@ -52,6 +53,11 @@ def main(argv=None):
     )
     parser.add_argument('--ssh', dest='host')
     parser.add_argument('--ip')
+    parser.add_argument('--management-ip', help='Management address, separate from the public endpoint')
+    parser.add_argument('--probe-origin', choices=['auto', 'master', 'local'], default='auto')
+    parser.add_argument('--interface', help='Physical interface for the local verification client')
+    parser.add_argument('--split-from', type=int, help='Existing inbound contributing part of its cap')
+    parser.add_argument('--split-original-bytes', type=int)
     parser.add_argument('--management-port', type=int)
     parser.add_argument('--port', type=int, default=8443)
     parser.add_argument('--protocol', choices=['hysteria', 'vless'],
@@ -102,8 +108,15 @@ def main(argv=None):
     if not re.fullmatch(r'[A-Za-z0-9_.-]+', args.host):
         parser.error('Invalid SSH alias')
     ip = ipaddress.ip_address(args.ip)
-    if ip.version != 4 or not ip.is_global:
-        parser.error('Expected a public IPv4 address')
+    if not ip.is_global:
+        parser.error('Expected a public IPv4 or IPv6 address')
+    args.ip = str(ip)
+    management_ip = str(ipaddress.ip_address(args.management_ip or args.ip))
+    if not ipaddress.ip_address(management_ip).is_global:
+        parser.error('Expected a public management address')
+    local_probe = args.probe_origin == 'local' or (args.probe_origin == 'auto' and ip.version == 6)
+    if local_probe and not client_probe.core_path():
+        parser.error('IPv6/local verification requires Mihomo or Clash Verge on this computer')
     if not 1024 <= args.port <= 65535 or not 1024 <= args.management_port <= 65535:
         parser.error('Invalid port')
     if args.unlimited:
@@ -121,7 +134,7 @@ def main(argv=None):
     ):
         parser.error('Quota must be positive')
     # Reject oversubscribed groups before installing anything on the remote host.
-    sys.path.insert(0, str(ROOT.parent / 'backend'))
+    sys.path.insert(0, str(ROOT.parent.parent / 'backend'))
     from node_catalog import validate_catalog
 
     catalog = json.loads(ssh(args.master, 'cat /etc/jamie-node-catalog.json'))
@@ -149,6 +162,12 @@ def main(argv=None):
     candidate['nodes'] = [n for n in candidate['nodes'] if n['inbound_id'] != row['inbound_id']] + [
         row
     ]
+    if args.split_from and not existing:
+        donor = next(n for n in candidate['nodes'] if n['inbound_id'] == args.split_from)
+        remaining = args.split_original_bytes - row['quota_bytes'] if args.split_original_bytes else 0
+        if remaining <= 0 or donor['quota_group'] != row['quota_group'] or donor['quota_bytes'] not in (args.split_original_bytes, remaining):
+            parser.error('Invalid or changed shared allocation; no quota changed')
+        donor['quota_bytes'] = remaining
     if args.group_limit_tb is not None:
         limit = int(args.group_limit_tb * 10**12)
         if (
@@ -172,7 +191,7 @@ def main(argv=None):
         script = 'prepare_alpine_node.sh' if alpine else 'prepare_small_node.sh'
         ssh(
             args.host,
-            f'bash -s -- {args.ip} {args.management_port} {master_ip} {args.memory_mib} {args.cpu_percent}',
+            f'bash -s -- {management_ip} {args.management_port} {master_ip} {args.memory_mib} {args.cpu_percent}',
             (ROOT / script).read_bytes(),
         )
         if protocol == 'vless':
@@ -181,7 +200,7 @@ def main(argv=None):
         # Only installations marked freshly prepared may change core version.
         ssh(args.host, 'python3 -', (ROOT / 'prepare_tcp_core.py').read_bytes())
     # This maintenance helper is bundled here, rather than depending on another checkout.
-    ssh(args.host, 'python3 -', (ROOT / 'node_settings.py').read_bytes())
+    ssh(args.host, 'python3 -', (ROOT / 'settings.py').read_bytes())
     env = {}
     for line in ssh(args.host, 'cat /etc/x-ui/install-result.env').decode().splitlines():
         key, value = line.split('=', 1)
@@ -192,6 +211,7 @@ def main(argv=None):
     digest = hashlib.sha256(der).digest()
     params = {
         **row,
+        'management_server': management_ip,
         'management_port': args.management_port,
         'token': env['XUI_API_TOKEN'],
         'base': '/' + env['XUI_WEB_BASE_PATH'].strip('/') + '/',
@@ -199,9 +219,19 @@ def main(argv=None):
         'xray_pin': base64.b64encode(digest).decode(),
         'group_limit': int(args.group_limit_tb * 10**12) if args.group_limit_tb is not None else None,
         'publish_unverified': args.publish_unverified,
+        'split_from_id': args.split_from,
+        'split_original_bytes': args.split_original_bytes,
     }
-    command = 'python3 -c ' + shlex.quote((ROOT / 'node_register.py').read_text())
-    result = json.loads(ssh(args.master, command, json.dumps(params).encode()))
+    if ip.version == 6:
+        ssh(args.master, 'python3 -', (ROOT / 'subscriptions.py').read_bytes())
+    source = (ROOT / 'register.py').read_text()
+    if local_probe:
+        command = ['ssh', *SSH_OPTIONS, '-o', 'BatchMode=yes', '-o', 'StrictHostKeyChecking=yes',
+                   '-o', 'ConnectTimeout=12', args.master]
+        result = client_probe.register(command, source, params, args.interface)
+    else:
+        command = 'python3 -c ' + shlex.quote(source)
+        result = json.loads(ssh(args.master, command, json.dumps(params).encode()))
     print(json.dumps(result, ensure_ascii=False))
     return result
 
