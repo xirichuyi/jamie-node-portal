@@ -332,7 +332,10 @@ class App:
                 if billing
                 else member['expires'],
                 'billing': billing,
-                'pending': member['revision'] > member['synced_revision'],
+                'pending': member['revision'] > max(member['synced_revision'], member['ready_revision']),
+                'sync_warning': '部分节点正在恢复，其余节点可正常使用'
+                if member['synced_revision'] < member['revision'] == member['ready_revision']
+                else None,
                 'sync_error': member['sync_error'],
                 'usage_error': error,
                 'enabled': panel_enabled,
@@ -345,6 +348,7 @@ class App:
                 )
                 and not member['disabled']
                 and not member['previous_sub_id']
+                and not member['previous_panel_auth']
                 else None,
             },
             'incidents': incidents,

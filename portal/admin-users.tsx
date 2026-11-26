@@ -108,6 +108,7 @@ export const userStates: Record<string, string> = {
   pending: '待同步',
   error: '同步异常',
   synced: '已同步',
+  partial: '可用，部分节点待恢复',
 };
 const scopes = [
   ['all', '全部'],

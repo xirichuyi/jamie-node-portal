@@ -133,7 +133,7 @@ class UserWorkspace:
                 dict(r)
                 for r in db.execute(
                     """SELECT a.id,a.username,a.admin,a.must_change,
-                m.quota,m.expires,m.disabled,m.deleting,m.revision,m.synced_revision,m.sync_error,m.created,
+                m.quota,m.expires,m.disabled,m.deleting,m.revision,m.synced_revision,m.ready_revision,m.sync_error,m.created,
                 m.last_sync_attempt,m.last_synced_at,m.panel_email,
                 (SELECT email FROM verified_emails WHERE account_id=a.id) AS email,
                 (SELECT body FROM admin_user_notes WHERE member_id=m.id) AS note_body,
@@ -172,6 +172,8 @@ class UserWorkspace:
             row['sync_state'] = (
                 'error'
                 if row['sync_error']
+                else 'partial'
+                if row['synced_revision'] < row['revision'] == row['ready_revision']
                 else 'pending'
                 if row['revision'] > row['synced_revision']
                 else 'synced'
@@ -223,7 +225,7 @@ class UserWorkspace:
             if key == 'expiring':
                 return m['primary_state'] == 'active' and m['expires'] <= now + 7 * 86400
             if key == 'pending':
-                return m['revision'] > m['synced_revision']
+                return m['revision'] > max(m['synced_revision'], m['ready_revision'])
             if key == 'sync_errors':
                 return m['sync_state'] == 'error'
             return m['primary_state'] == key
@@ -344,7 +346,8 @@ class UserWorkspace:
             pending = {
                 r[0]
                 for r in db.execute(
-                    'SELECT id FROM members WHERE revision>synced_revision AND sync_error IS NULL'
+                    '''SELECT id FROM members WHERE revision>synced_revision
+                    AND revision>ready_revision AND sync_error IS NULL'''
                 )
             }
         with self.lock:
@@ -404,6 +407,7 @@ class UserWorkspace:
             target = self.target(db, uid)
             if target['revision'] <= target['synced_revision']:
                 return False
+            db.execute('UPDATE members SET sync_next_attempt=0 WHERE id=?', (uid,))
             self.app.ledger.audit(db, actor, 'account.retry_sync', uid)
         return True
 

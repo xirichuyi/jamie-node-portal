@@ -96,6 +96,7 @@ type Me = {
     pending: boolean;
     rotating?: boolean;
     sync_error: string | null;
+    sync_warning?: string | null;
     usage_error: string | null;
     enabled: boolean | null;
     url: string | null;

@@ -36,6 +36,7 @@ type Subscription = {
   pending: boolean;
   rotating?: boolean;
   sync_error: string | null;
+  sync_warning?: string | null;
   usage_error: string | null;
   enabled: boolean | null;
   plan_name: string | null;
@@ -247,9 +248,9 @@ export function Dashboard({
               )}
             </div>
           </div>
-          {(s.sync_error || s.usage_error || s.pending) && (
+          {(s.sync_error || s.sync_warning || s.usage_error || s.pending) && (
             <p className="message" role="status">
-              {s.sync_error || s.usage_error || '正在同步节点，无需重复兑换。'}
+              {s.sync_error || s.usage_error || s.sync_warning || '正在同步节点，无需重复兑换。'}
             </p>
           )}
         </>

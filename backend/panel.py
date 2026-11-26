@@ -13,9 +13,10 @@ from node_catalog import active_nodes
 class PartialSync(RuntimeError):
     """Desired state is stored, but only part of the active fleet is confirmed."""
 
-    def __init__(self, usable=False):
+    def __init__(self, usable=False, nodes=None):
         super().__init__('Node synchronization pending')
         self.usable = usable
+        self.nodes = nodes
 
 
 class LoopbackTLS(http.client.HTTPSConnection):
@@ -51,6 +52,8 @@ class Panel:
         self._inbounds = value
 
     def request(self, path, payload=None):
+        if payload is not None:
+            self._node_snapshot = None
         req = urllib.request.Request(
             self.base + path,
             data=None if payload is None else json.dumps(payload).encode(),
@@ -187,21 +190,26 @@ class Panel:
         ):
             raise RuntimeError('Panel entitlement verification failed')
         if catalog_path:
-            self.confirm_nodes(enabled)
+            return self.confirm_nodes(enabled)
+        return None
 
     def confirm_nodes(self, enabled=False):
-        nodes = {n['id']: n for n in self.request('nodes/list')}
+        snapshot = getattr(self, '_node_snapshot', None)
+        if snapshot is None or time.monotonic() - snapshot[0] >= 5:
+            snapshot = (time.monotonic(), self.request('nodes/list'))
+            self._node_snapshot = snapshot
+        nodes = {n['id']: n for n in snapshot[1]}
         expected = active_nodes(self.catalog_path)
-        confirmed = 0
+        states = {}
         for row in expected:
             node = nodes.get(row['node_id'], {})
-            if (
+            states[row['node_id']] = (
                 node.get('enable') is True
                 and node.get('status') == 'online'
                 and node.get('xrayState') == 'running'
                 and node.get('configDirty') is False
                 and 0 <= time.time() - node.get('lastHeartbeat', 0) <= 60
-            ):
-                confirmed += 1
-        if not expected or confirmed != len(expected):
-            raise PartialSync(usable=enabled and confirmed > 0)
+            )
+        if not states or not all(states.values()):
+            raise PartialSync(usable=enabled and any(states.values()), nodes=states)
+        return states

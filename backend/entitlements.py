@@ -84,11 +84,18 @@ class Ledger:
             }:
                 db.execute('ALTER TABLE members ADD COLUMN previous_panel_auth TEXT')
             columns = {r['name'] for r in db.execute('PRAGMA table_info(members)')}
-            for column in ('last_sync_attempt', 'last_synced_at', 'ready_revision'):
+            for column in ('last_sync_attempt', 'last_synced_at', 'ready_revision',
+                           'sync_staged_revision', 'sync_retry_revision',
+                           'sync_failures', 'sync_next_attempt'):
                 if column not in columns:
                     db.execute(
                         'ALTER TABLE members ADD COLUMN ' + column + ' INTEGER NOT NULL DEFAULT 0'
                     )
+            db.execute('''CREATE TABLE IF NOT EXISTS member_node_sync (
+                member_id TEXT NOT NULL REFERENCES members(id) ON DELETE CASCADE,
+                node_id INTEGER NOT NULL, revision INTEGER NOT NULL,
+                confirmed INTEGER NOT NULL, checked_at INTEGER NOT NULL,
+                PRIMARY KEY(member_id,node_id))''')
             if 'kind' not in {r['name'] for r in db.execute('PRAGMA table_info(cards)')}:
                 db.execute("ALTER TABLE cards ADD COLUMN kind TEXT NOT NULL DEFAULT 'base'")
             from cycles import install_rules
@@ -415,28 +422,52 @@ class Ledger:
                 'UPDATE members SET last_sync_attempt=? WHERE id=?', (int(time.time()), member_id)
             )
         try:
-            panel.apply(desired)
+            if member['sync_staged_revision'] == member['revision'] and member['revision'] > 0:
+                enabled = member['quota'] > 0 and not (
+                    member['disabled'] or member['billing_blocked'])
+                states = panel.confirm_nodes(enabled)
+            else:
+                states = panel.apply(desired)
         except Exception as exc:
             with self.connect() as db:
+                failures = (member['sync_failures']
+                            if member['sync_retry_revision'] == member['revision'] else 0) + 1
+                db.execute('''UPDATE members SET sync_retry_revision=?,sync_failures=?,
+                    sync_next_attempt=? WHERE id=? AND revision=?''',
+                    (member['revision'], failures,
+                     int(time.time()) + min(300, 15 * 2 ** min(failures - 1, 5)),
+                     member_id, member['revision']))
                 db.execute(
-                    'UPDATE members SET sync_error=? WHERE id=?',
-                    ('节点同步暂未完成，系统会自动重试', member_id),
+                    'UPDATE members SET sync_error=? WHERE id=? AND revision=?',
+                    ('节点同步暂未完成，系统会自动重试', member_id, member['revision']),
                 )
-                if isinstance(exc, PartialSync) and exc.usable and not member['previous_sub_id']:
+                if isinstance(exc, PartialSync) and exc.nodes is not None:
+                    self.record_node_sync(db, member, exc.nodes)
+                    db.execute('UPDATE members SET sync_staged_revision=? WHERE id=? AND revision=?',
+                               (member['revision'], member_id, member['revision']))
+                if (isinstance(exc, PartialSync) and exc.usable and not member['previous_sub_id']
+                        and not member['previous_panel_auth']):
                     db.execute(
                         'UPDATE members SET ready_revision=?,sync_error=? WHERE id=? AND revision=?',
                         (
                             member['revision'],
-                            '部分节点暂不可用，其余节点可正常使用',
+                            None,
                             member_id,
                             member['revision'],
                         ),
                     )
             return False
         with self.connect() as db:
+            if isinstance(states, dict):
+                self.record_node_sync(db, member, states)
             db.execute(
-                'UPDATE members SET synced_revision=?,sync_error=NULL,last_synced_at=? WHERE id=?',
-                (member['revision'], int(time.time()), member_id),
+                '''UPDATE members SET synced_revision=MAX(synced_revision,?),
+                   ready_revision=MAX(ready_revision,?),last_synced_at=?,
+                   sync_error=CASE WHEN revision=? THEN NULL ELSE sync_error END,
+                   sync_failures=CASE WHEN revision=? THEN 0 ELSE sync_failures END,
+                   sync_next_attempt=CASE WHEN revision=? THEN 0 ELSE sync_next_attempt END WHERE id=?''',
+                (member['revision'], member['revision'], int(time.time()),
+                 member['revision'], member['revision'], member['revision'], member_id),
             )
             db.execute(
                 'UPDATE members SET previous_sub_id=NULL,previous_panel_auth=NULL WHERE id=? AND revision=?',
@@ -444,12 +475,21 @@ class Ledger:
             )
         return True
 
+    @staticmethod
+    def record_node_sync(db, member, states):
+        for node_id, confirmed in states.items():
+            db.execute('''INSERT INTO member_node_sync VALUES (?,?,?,?,?)
+                ON CONFLICT(member_id,node_id) DO UPDATE SET revision=excluded.revision,
+                confirmed=excluded.confirmed,checked_at=excluded.checked_at''',
+                (member['id'], node_id, member['revision'], int(confirmed), int(time.time())))
+
     def pending(self):
         with self.connect() as db:
             return [
                 r['id']
                 for r in db.execute(
-                    """SELECT id FROM members WHERE revision>synced_revision
-                   ORDER BY last_sync_attempt,id LIMIT 100"""
+                    """SELECT id FROM members WHERE revision>synced_revision AND deleting=0
+                    AND (sync_retry_revision!=revision OR sync_next_attempt<=?)
+                   ORDER BY last_sync_attempt,id LIMIT 100""", (int(time.time()),)
                 )
             ]

@@ -148,6 +148,9 @@ class PartialSyncTests(unittest.TestCase):
             member = dict(db.execute('SELECT * FROM members WHERE id=?', (uid,)).fetchone())
         self.assertEqual(member['synced_revision'], 0)
         self.assertEqual(member['ready_revision'], 1)
+        self.assertNotIn(uid, app.ledger.pending())  # failure backs off before retrying
+        with app.ledger.connect() as db:
+            db.execute('UPDATE members SET sync_next_attempt=0 WHERE id=?', (uid,))
         self.assertIn(uid, app.ledger.pending())
         self.assertIsNotNone(app.overview(account)['subscription']['url'])
         with app.ledger.connect() as db:

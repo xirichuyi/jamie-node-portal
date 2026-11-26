@@ -65,6 +65,9 @@ class Tests(unittest.TestCase):
 
         self.ledger.redeem('alice', self.code()['code'])
         self.assertFalse(self.ledger.sync_member('alice', Panel()))
+        self.assertEqual(self.ledger.pending(), [])  # failure backs off before retrying
+        with self.ledger.connect() as db:
+            db.execute("UPDATE members SET sync_next_attempt=0 WHERE id='alice'")
         self.assertEqual(self.ledger.pending(), ['alice'])
         self.assertTrue(self.ledger.sync_member('alice', Panel()))
         self.assertEqual(targets[0], targets[1])
