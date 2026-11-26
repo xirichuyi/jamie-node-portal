@@ -16,7 +16,7 @@ def dispatch(ctx):
     if not write and path == '/api/history':
         return ctx.reply(200, {'history': app.redemption_history(account['id'])})
     if not write and path == '/api/nodes':
-        return ctx.reply(200, app.monitor.snapshot())
+        return ctx.reply(200, app.monitor.public_snapshot())
     if not write and path == '/api/usage':
         # The home page shows a week; the detail page asks for the full window.
         week = parse_qs(urlsplit(ctx.raw_path).query).get('days') == ['7']

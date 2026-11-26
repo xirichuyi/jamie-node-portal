@@ -152,11 +152,15 @@ def run(root=Path('/var/lib/jamie-portal'), core='/usr/local/x-ui/bin/xray-linux
                 raise ValueError('Missing subscription metadata')
         lines = base64.b64decode(raw, validate=True).decode().splitlines()
         configs = [outbound(line.strip(), nodes) for line in lines if line.strip()]
-        if {outbound_endpoint(c) for c in configs} != set(
-            nodes
-        ) or len(configs) != len(nodes):
+        present = {outbound_endpoint(c) for c in configs}
+        # Offline hosts are left out of subscriptions, so a subset is expected;
+        # anything unknown or duplicated is still a failure.
+        if not configs or not present <= set(nodes) or len(configs) != len(present):
             raise ValueError('Unexpected node inventory')
         result['subscription_ok'] = True
+        for host, port in sorted(set(nodes) - present):
+            result['nodes'].append({'name': nodes[(host, port)], 'server': host, 'ok': False,
+                                    'latency_ms': None, 'error': '主机离线，已从订阅隐藏'})
         for config in configs:
             host, port = outbound_endpoint(config)
             item = {

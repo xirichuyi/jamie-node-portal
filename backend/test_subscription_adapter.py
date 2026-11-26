@@ -97,6 +97,20 @@ class DynamicSubscriptionTests(unittest.TestCase):
         self.assertEqual(pick('/sub/x', {'format': ['clash']}, 'clash-verge/v2', ''), 'clash')
         self.assertEqual(pick('/sub/x', {}, 'Shadowrocket/2070', ''), 'base64')
 
+    def test_offline_hosts_dropped_unless_that_empties_the_subscription(self):
+        rows = [{'server': f'8.8.4.{i}', 'port': 8443, 'name': f'地区 {i}'} for i in (1, 2, 3)]
+        raw = base64.b64encode('\n'.join(
+            f'hy2://secret@8.8.4.{i}:8443?pinSHA256=' + 'a' * 64 for i in (1, 2, 3)
+        ).encode())
+        with patch.object(adapter, 'active_nodes', return_value=rows):
+            kept = adapter.drop_hidden(raw, [['8.8.4.2', 8443]])
+            names = [p['name'] for p in yaml.safe_load(adapter.convert(kept))['proxies']]
+            self.assertEqual(names, ['地区 1', '地区 3'])
+            self.assertEqual(len(base64.b64decode(adapter.native_subscription(kept)).splitlines()), 2)
+            everything = [[r['server'], r['port']] for r in rows]
+            self.assertEqual(adapter.drop_hidden(raw, everything), raw)
+            self.assertEqual(adapter.drop_hidden(raw, None), raw)
+
     def test_unpublished_node_is_not_exposed(self):
         raw = ('hy2://secret@8.8.4.4:8443?pinSHA256=' + 'a' * 64).encode()
         with patch.object(adapter, 'active_nodes', return_value=[]):

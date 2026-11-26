@@ -37,7 +37,10 @@ export function AuthFlow({
   const signup = mode === 'register';
   const [emailCode, setEmailCode] = useState('');
   const [plan, setPlan] = useState<Preview | null>(null);
-  const [code, setCode] = useCardCode(() => { setPlan(null); });
+  // Registration is open: the card step may be skipped and redeemed later.
+  const [skipped, setSkipped] = useState(false);
+  const [code, setCode] = useCardCode(() => { setPlan(null); setSkipped(false); });
+  const details = !!plan || skipped;
   const [username, setUsername] = useState(''),
     [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false),
@@ -54,19 +57,22 @@ export function AuthFlow({
   }, [mode]);
   useEffect(() => {
     heading.current?.focus();
-  }, [mode, !!plan, complete]);
+  }, [mode, details, complete]);
   const submit = async () => {
     if (pending.current) return;
     pending.current = true;
     setBusy(true);
     setError('');
     try {
-      if (signup && !plan)
-        setPlan(await api<Preview>('register/preview', { code }));
-      else {
+      if (signup && !details) {
+        if (code.trim()) setPlan(await api<Preview>('register/preview', { code }));
+        else setSkipped(true);
+      } else {
         await api(
           signup ? 'register' : 'login',
-          signup ? { code, username, password, email_code: emailCode } : { username, password },
+          signup
+            ? { code: plan ? code : '', username, password, email_code: emailCode }
+            : { username, password },
         );
         setComplete(true);
         setCode('');
@@ -77,7 +83,8 @@ export function AuthFlow({
             sessionStorage.removeItem('jamie-guide');
           } catch {}
         }
-        await onSuccess(signup);
+        // Without a card there is nothing to install yet: land on home to open a plan.
+        await onSuccess(signup && !!plan);
       }
     } catch (e) {
       setError(
@@ -101,12 +108,14 @@ export function AuthFlow({
       <h1 ref={heading} tabIndex={-1}>
         {complete
           ? signup
-            ? '账号已开通'
+            ? plan
+              ? '账号已开通'
+              : '注册成功'
             : '登录成功'
           : signup
-            ? plan
+            ? details
               ? '设置你的账号'
-              : '用卡密开通账号'
+              : '注册账号'
             : '欢迎回来'}
       </h1>
       {complete ? (
@@ -119,11 +128,11 @@ export function AuthFlow({
         <>
           {signup ? (
             <ol className="activation-steps" aria-label="开通步骤">
-              <li aria-current={!plan ? 'step' : undefined}>1 验证卡密</li>
-              <li aria-current={plan ? 'step' : undefined}>2 验证邮箱并开通</li>
+              <li aria-current={!details ? 'step' : undefined}>1 卡密（选填）</li>
+              <li aria-current={details ? 'step' : undefined}>2 验证邮箱并注册</li>
             </ol>
           ) : null}
-          {!!pendingCard() && !plan && (
+          {!!pendingCard() && !details && (
             <div className="card-link-hint" role="status">
               <strong>已填入兑换链接中的卡密</strong>
               <button className="text-link" disabled={busy} onClick={() => navigate(signup ? 'login' : 'register')}>
@@ -137,7 +146,7 @@ export function AuthFlow({
               {error}
             </p>
           )}
-          {signup && !plan && <PasteCard disabled={busy} onCode={setCode} />}
+          {signup && !details && <PasteCard disabled={busy} onCode={setCode} />}
           <form
             onSubmit={(event) => {
               event.preventDefault();
@@ -145,23 +154,22 @@ export function AuthFlow({
             }}
             aria-busy={busy}
           >
-            {signup && !plan ? (
+            {signup && !details ? (
               <label className="field">
-                <span>卡密</span>
+                <span>卡密（选填）</span>
                 <Input
                   name="code"
                   value={code}
                   onChange={(e) => setCode(e.target.value)}
-                  required
                   maxLength={100}
                   autoComplete="off"
                   autoCapitalize="none"
                   spellCheck={false}
                   disabled={busy}
-                  placeholder="粘贴你收到的卡密"
+                  placeholder="有卡密可粘贴，没有可留空"
                 />
                 <small className="muted">
-                  验证不扣卡、不计时。
+                  没有卡密也能注册，之后可在站内兑换或购买套餐。验证不扣卡、不计时。
                 </small>
               </label>
             ) : (
@@ -183,7 +191,7 @@ export function AuthFlow({
                     placeholder={signup ? '用于登录和找回密码' : '邮箱或原用户名'}
                   />
                 </label>
-                {signup && <EmailCode email={username} purpose="register" card={code} value={emailCode} onChange={setEmailCode} />}
+                {signup && <EmailCode email={username} purpose="register" card={plan ? code : undefined} value={emailCode} onChange={setEmailCode} />}
                 <label className="field">
                   <span>密码</span>
                   <Input
@@ -211,30 +219,35 @@ export function AuthFlow({
             )}
             <Button type="submit" className="full" disabled={busy}>
               {busy
-                ? signup && !plan
+                ? signup && !details
                   ? '正在验证…'
                   : signup
-                    ? '正在开通…'
+                    ? '正在注册…'
                     : '正在登录…'
                 : signup
-                  ? plan
-                    ? '确认开通'
-                    : '验证卡密，继续'
+                  ? details
+                    ? plan
+                      ? '确认开通'
+                      : '注册'
+                    : code.trim()
+                      ? '验证卡密，继续'
+                      : '不用卡密，直接注册'
                   : '登录'}{' '}
               <ArrowRight size={18} />
             </Button>
-            {signup && plan && (
+            {signup && details && (
               <button
                 type="button"
                 className="text-link"
                 disabled={busy}
                 onClick={() => {
                   setPlan(null);
+                  setSkipped(false);
                   setError('');
                   setShowPassword(false);
                 }}
               >
-                ← 返回修改卡密
+                {plan ? '← 返回修改卡密' : '← 返回填写卡密'}
               </button>
             )}
           </form>
@@ -244,7 +257,7 @@ export function AuthFlow({
               disabled={busy}
               onClick={() => navigate(signup ? 'login' : 'register')}
             >
-              {signup ? '已经开通过？登录账号' : '有卡密？开通账号'}
+              {signup ? '已有账号？登录' : '还没有账号？免费注册'}
             </button>
             {!signup && (
               <button

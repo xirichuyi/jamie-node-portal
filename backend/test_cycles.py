@@ -204,7 +204,8 @@ class CycleTests(unittest.TestCase):
                 self.assertEqual(response.status, status)
                 body = json.loads(response.read())
                 if status == 200:
-                    self.assertEqual(set(body), {'usage'})
+                    self.assertEqual(set(body), {'usage', 'hidden'})
+                    self.assertEqual(body['hidden'], [])
                     self.assertIn('expire=0', body['usage'])
                 connection.close()
         finally:

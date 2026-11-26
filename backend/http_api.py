@@ -112,7 +112,13 @@ class Handler(BaseHTTPRequestHandler):
             token = path.rsplit('/', 1)[-1]
             if not re.fullmatch(r'[A-Za-z0-9_-]{16,128}', token):
                 raise HttpError(404, 'Not found')
-            return self.reply(200, {'usage': app.subscription_info(token)})
+            return self.reply(
+                200,
+                {
+                    'usage': app.subscription_info(token),
+                    'hidden': [list(e) for e in app.monitor.hidden_endpoints()],
+                },
+            )
         data = self.read_data(app) if write else RequestData()
         token, account = '', None
         if ('POST' if write else 'GET', path) not in PUBLIC:

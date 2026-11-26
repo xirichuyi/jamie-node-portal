@@ -20,6 +20,21 @@ from proxy_links import decode_links, parse_link
 def node_rows():
     return {(row['server'], row['port']): row for row in active_nodes()}
 
+def drop_hidden(raw, hidden):
+    """Leave out nodes whose host stopped reporting. If that would empty the
+    subscription, keep everything: an empty profile helps no one."""
+    hidden = {(h, p) for h, p in hidden or ()}
+    if not hidden:
+        return raw
+    kept = []
+    for line in decode_links(raw):
+        u = urllib.parse.urlsplit(line)
+        if (u.hostname, u.port or 443) not in hidden:
+            kept.append(line)
+    if not kept:
+        return raw
+    return base64.b64encode(('\n'.join(kept) + '\n').encode())
+
 def node_names():
     return {key: row['name'] for key, row in node_rows().items()}
 
@@ -387,9 +402,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 usage = response.headers.get('subscription-userinfo')
                 # Portal ledger owns package/cycle metadata; the panel enforces access.
                 with urllib.request.urlopen('http://127.0.0.1:18766/internal/subscription-info/' + match[1], timeout=3) as info:
-                    portal_usage = json.loads(info.read(4096)).get('usage')
+                    portal_info = json.loads(info.read(65536))
+                portal_usage = portal_info.get('usage')
                 if portal_usage is not None:
                     usage = portal_usage
+                raw = drop_hidden(raw, portal_info.get('hidden'))
                 if fmt == 'clash':
                     result = convert(raw, usage)
                 elif fmt == 'rocket-yaml':

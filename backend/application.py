@@ -157,7 +157,9 @@ class App:
             challenge = self.email_auth.check(username, 'register', email_code)
         elif not isinstance(username, str) or not re.fullmatch(r'[a-zA-Z0-9_]{3,32}', username):
             raise DomainError('用户名为 3–32 位字母、数字或下划线')
-        if not isinstance(code, str) or not 1 <= len(code) <= 100:
+        if code is None or (isinstance(code, str) and not code.strip()):
+            code = None  # Open registration: the card is optional.
+        elif not isinstance(code, str) or len(code) > 100:
             raise DomainError('请输入有效卡密')
         username = username.lower()
         with self.password_lock:
@@ -166,6 +168,10 @@ class App:
                 now = int(time.time())
                 if challenge:
                     self.email_auth.consume(db, challenge)
+                if code is None:
+                    token = self._register_open(db, username, hashed, challenge, now, agent, ip)
+                    self.wake.set()
+                    return token
                 card = db.execute(
                     'SELECT * FROM cards WHERE digest=?', (self.ledger.digest(code),)
                 ).fetchone()
@@ -232,6 +238,21 @@ class App:
                     token = self._new_session(db, uid, agent, ip)
         self.wake.set()
         return token
+
+    def _register_open(self, db, username, hashed, challenge, now, agent, ip):
+        """Card-free account: no package yet, so the panel keeps it at zero access
+        until a card is redeemed or an order is paid through the usual billing path."""
+        if db.execute('SELECT 1 FROM accounts WHERE username=?', (username,)).fetchone():
+            raise DomainError('该用户名不可用，请更换；已有账号请直接登录')
+        if db.execute('SELECT COUNT(*) FROM accounts').fetchone()[0] >= 10000:
+            raise HttpError(503, '暂时无法注册，请联系管理员')
+        uid = secrets.token_hex(16)
+        self.ledger.insert_member(db, uid, now=now)
+        db.execute('INSERT INTO accounts VALUES(?,?,?,0,0)', (uid, username, hashed))
+        if challenge:
+            db.execute('INSERT INTO verified_emails VALUES(?,?,?)', (uid, username, now))
+        self.ledger.audit(db, uid, 'account.register', uid)
+        return self._new_session(db, uid, agent, ip)
 
     def _new_session(self, db, account_id, agent='', ip=''):
         token = secrets.token_urlsafe(32)

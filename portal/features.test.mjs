@@ -233,7 +233,7 @@ test('public notice entry is visible without login; drafts stay hidden and revis
     '',
   );
 });
-test('activation starts with only a card; login remains a separate credential form', () => {
+test('signup starts with an optional card; login remains a separate credential form', () => {
   const render = (mode) =>
     renderToStaticMarkup(
       React.createElement(authentication.AuthFlow, {
@@ -243,11 +243,13 @@ test('activation starts with only a card; login remains a separate credential fo
       }),
     );
   const signup = render('register');
-  assert.match(signup, /用卡密开通账号/);
+  assert.match(signup, /注册账号/);
   assert.match(signup, /name="code"/);
+  assert.doesNotMatch(signup, /name="code"[^>]*required/);
+  assert.match(signup, /不用卡密，直接注册/);
   assert.doesNotMatch(signup, /name="password"/);
   assert.match(signup, /验证不扣卡、不计时/);
-  assert.match(signup, /已经开通过？登录账号/);
+  assert.match(signup, /已有账号？登录/);
   const login = render('login');
   assert.match(login, /name="username"/);
   assert.match(login, /name="password"/);

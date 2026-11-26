@@ -133,8 +133,8 @@ class EmailAuth:
         app.limit('mail-ip:' + ip, 5, 3600)
         app.limit('mail-cooldown:' + email, 1, 60)
         app.limit('mail-address:' + email, 5, 86400)
-        if purpose == 'register':
-            app.card_preview(card)
+        if purpose == 'register' and isinstance(card, str) and card.strip():
+            app.card_preview(card)  # Optional card: still reject a bad one before mailing.
         with app.ledger.connect() as db:
             account = db.execute('SELECT id FROM accounts WHERE username=?', (email,)).fetchone()
             verified = db.execute(

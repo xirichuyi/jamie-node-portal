@@ -267,12 +267,14 @@ class NodeMonitor:
         self.panel = panel
         self.catalog_path = catalog_path
         self.names = names or {}
+        self.endpoints = {}
         self.load_names()
         self.lock = threading.Lock()
         self.data = {
             'checked_at': 0,
             'nodes': [
-                {'id': i, 'name': name, 'status': 'unknown', 'heartbeat': 0, 'latency_ms': None}
+                {'id': i, 'name': name, 'status': 'unknown', 'heartbeat': 0, 'latency_ms': None,
+                 'reachable': True}
                 for i, name in self.names.items()
             ],
         }
@@ -281,7 +283,9 @@ class NodeMonitor:
         if self.catalog_path:
             from node_catalog import active_nodes
 
-            self.names = {row['inbound_id']: row['name'] for row in active_nodes(self.catalog_path)}
+            rows = active_nodes(self.catalog_path)
+            self.names = {row['inbound_id']: row['name'] for row in rows}
+            self.endpoints = {row['inbound_id']: (row['server'], row['port']) for row in rows}
 
     def refresh(self):
         now = int(time.time())
@@ -306,12 +310,17 @@ class NodeMonitor:
                 ):
                     status = 'pending' if n.get('configDirty') else 'online'
                 latency = n.get('latencyMs')
+                # The panel answered and knows this host, but it is gone: explicit offline
+                # or no heartbeat for 3 minutes. Paused is deliberate; an inbound without a
+                # node record (served by the master itself) is never judged here.
+                reachable = not n or status == 'paused' or (status != 'offline' and fresh)
                 rows.append(
                     {
                         'id': inbound_id,
                         'name': name,
                         'status': status,
                         'heartbeat': heartbeat,
+                        'reachable': reachable,
                         'latency_ms': latency
                         if status == 'online' and type(latency) is int and latency >= 0
                         else None,
@@ -322,7 +331,8 @@ class NodeMonitor:
             with self.lock:
                 result = copy.deepcopy(self.data)
             for row in result['nodes']:
-                row.update(status='unknown', latency_ms=None)
+                # Panel unreachable says nothing about the nodes: never hide them for it.
+                row.update(status='unknown', latency_ms=None, reachable=True)
         with self.lock:
             self.data = result
 
@@ -331,8 +341,26 @@ class NodeMonitor:
             result = copy.deepcopy(self.data)
         if time.time() - result['checked_at'] > 90:
             for row in result['nodes']:
-                row.update(status='unknown', latency_ms=None)
+                row.update(status='unknown', latency_ms=None, reachable=True)
         return result
+
+    def public_snapshot(self):
+        """Customer view: unreachable hosts leave the list until they report again."""
+        result = self.snapshot()
+        result['nodes'] = [
+            {k: v for k, v in row.items() if k != 'reachable'}
+            for row in result['nodes']
+            if row.get('reachable', True)
+        ]
+        return result
+
+    def hidden_endpoints(self):
+        """(server, port) pairs the subscription adapter leaves out right now."""
+        return sorted(
+            self.endpoints[row['id']]
+            for row in self.snapshot()['nodes']
+            if not row.get('reachable', True) and row['id'] in self.endpoints
+        )
 
     def run(self):
         while True:

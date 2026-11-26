@@ -545,7 +545,7 @@ class Features:
                     (event_limit,),
                 )
             ]
-        return {**self.app.monitor.snapshot(), 'incidents': incidents, 'events': events}
+        return {**self.app.monitor.public_snapshot(), 'incidents': incidents, 'events': events}
 
     def incident_save(self, account, data):
         title, body = text(data.get('title'), 100), text(data.get('body'), 4000)
